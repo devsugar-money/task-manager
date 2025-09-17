@@ -5,6 +5,9 @@ import Dashboard from './pages/Dashboard';
 import ServicerView from './pages/ServicerView';
 import Customers from './pages/Customers';
 import CustomerDetail from './pages/CustomerDetail';
+import Updates from './pages/Updates';
+import Reports from './pages/Reports';
+import UpNext from './pages/UpNext';
 
 function App() {
   return (
@@ -15,8 +18,9 @@ function App() {
           <Route path="/servicer" element={<ServicerView />} />
           <Route path="/customers" element={<Customers />} />
           <Route path="/customers/:customerId" element={<CustomerDetail />} />
-          <Route path="/updates" element={<div>Updates page coming soon...</div>} />
-          <Route path="/reports" element={<div>Reports page coming soon...</div>} />
+          <Route path="/up-next" element={<UpNext />} />
+          <Route path="/updates" element={<Updates />} />
+          <Route path="/reports" element={<Reports />} />
         </Routes>
       </Layout>
     </Router>

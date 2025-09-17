@@ -1,160 +1,288 @@
 import React, { useState, useEffect } from 'react';
-import { ChevronRight, CheckCircle, Clock, MessageCircle, AlertTriangle, Save } from 'lucide-react';
-import { supabase, isSupabaseConfigured, Task, PREDEFINED_STATUSES, COMMUNICATION_METHODS } from '../lib/supabase';
-import taskService from '../services/taskService';
+import { ChevronRight, ChevronDown, AlertTriangle, User, Filter, Folder, FolderOpen } from 'lucide-react';
+import { supabase, isSupabaseConfigured, TeamMember, PREDEFINED_STATUSES } from '../lib/supabase';
 import TimeIndicator from '../components/TimeIndicator';
-import StatusBadge from '../components/StatusBadge';
 import SupabaseStatus from '../components/SupabaseStatus';
-import { mockTasks } from '../lib/mockData';
 
-interface TaskUpdate {
+interface TaskWithDetails {
   id: string;
+  name: string;
   status: string;
-  customStatus?: string;
-  notes?: string;
-  communicated: boolean;
-  communicationMethod?: string;
-  noCommReason?: string;
+  last_updated?: string;
+  completed_at?: string;
+  sub_category_id: string;
+  sub_category?: {
+    id: string;
+    name: string;
+    overall_status?: string;
+    money_saved?: number;
+    category_id: string;
+    category?: {
+      id: string;
+      name: string;
+      customer_phone: string;
+    };
+  };
+}
+
+interface CustomerGrouped {
+  phone: string;
+  display_name: string;
+  assigned_to?: string;
+  flags?: string[];
+  last_contact_method?: string;
+  last_contact_at?: string;
+  categories: Map<string, {
+    id: string;
+    name: string;
+    subcategories: Map<string, {
+      id: string;
+      name: string;
+      overall_status?: string;
+      money_saved?: number;
+      tasks: TaskWithDetails[];
+    }>;
+  }>;
+  taskCounts: {
+    total: number;
+    in_progress: number;
+    waiting: number;
+    complete: number;
+  };
 }
 
 export default function ServicerView() {
-  const [tasks, setTasks] = useState<Task[]>(mockTasks);
-  const [currentTaskIndex, setCurrentTaskIndex] = useState(0);
-  const [updates, setUpdates] = useState<Record<string, TaskUpdate>>({});
+  const [servicers, setServicers] = useState<TeamMember[]>([]);
+  const [selectedServicer, setSelectedServicer] = useState<string>('');
+  const [customerData, setCustomerData] = useState<Map<string, CustomerGrouped>>(new Map());
+  const [expandedCustomers, setExpandedCustomers] = useState<Set<string>>(new Set());
+  const [expandedCategories, setExpandedCategories] = useState<Set<string>>(new Set());
+  const [expandedSubcategories, setExpandedSubcategories] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-  const currentServicer = 'servicer1'; // This would come from auth context
 
   useEffect(() => {
     if (isSupabaseConfigured && supabase) {
-      fetchServicerTasks();
+      fetchAllData();
     } else {
-      // Use mock data filtered for current servicer
-      const servicerTasks = mockTasks.filter(task => 
-        task.sub_category?.category?.customer?.assigned_servicer === currentServicer
-      );
-      setTasks(servicerTasks);
       setLoading(false);
     }
-  }, []);
+  }, [selectedServicer]);
 
-  const fetchServicerTasks = async () => {
-    
-    try {
-      // Get all tasks assigned to current servicer using the task service
-      const tasksData = await taskService.fetchServicerTasks(currentServicer);
-      setTasks(tasksData);
-    } catch (error) {
-      console.error('Error fetching servicer tasks:', error);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const currentTask = tasks[currentTaskIndex];
-  const currentUpdate = updates[currentTask?.id] || {
-    id: currentTask?.id || '',
-    status: currentTask?.status || '',
-    customStatus: currentTask?.custom_status || '',
-    notes: currentTask?.notes || '',
-    communicated: false,
-    communicationMethod: '',
-    noCommReason: ''
-  };
-
-  const updateCurrentTask = (field: keyof TaskUpdate, value: any) => {
-    if (!currentTask) return;
-    
-    setUpdates(prev => ({
-      ...prev,
-      [currentTask.id]: {
-        ...currentUpdate,
-        [field]: value
-      }
-    }));
-  };
-
-  const saveCurrentTask = async () => {
-    if (!currentTask || !isSupabaseConfigured) return;
-    
-    const { supabase } = await import('../lib/supabase');
+  const fetchAllData = async () => {
     if (!supabase) return;
     
-    setSaving(true);
+    setLoading(true);
     try {
-      const updateData = {
-        status: currentUpdate.status,
-        custom_status: currentUpdate.customStatus || null,
-        notes: currentUpdate.notes,
+      // Fetch team members
+      const { data: teamMembers, error: teamError } = await supabase
+        .from('tbl_team_member')
+        .select('*')
+        .order('name');
+
+      if (teamError) {
+        console.error('Error fetching team members:', teamError);
+        return;
+      }
+      setServicers(teamMembers || []);
+
+      // Fetch customers
+      let customerQuery = supabase
+        .from('tbl_customer')
+        .select('*');
+      
+      if (selectedServicer) {
+        customerQuery = customerQuery.eq('assigned_to', selectedServicer);
+      }
+
+      const { data: customers, error: customerError } = await customerQuery;
+      if (customerError) {
+        console.error('Error fetching customers:', customerError);
+        return;
+      }
+
+      // Fetch all tasks with full relationships
+      const { data: tasks, error: tasksError } = await supabase
+        .from('tasks')
+        .select(`
+          *,
+          sub_category:sub_categories!inner(
+            id,
+            name,
+            overall_status,
+            money_saved,
+            category_id,
+            category:categories!inner(
+              id,
+              name,
+              customer_phone
+            )
+          )
+        `)
+        .order('last_updated', { ascending: false });
+
+      if (tasksError) {
+        console.error('Error fetching tasks:', tasksError);
+        return;
+      }
+
+      // Group data by customer -> category -> subcategory
+      const customerMap = new Map<string, CustomerGrouped>();
+
+      // Initialize customers
+      customers?.forEach(customer => {
+        customerMap.set(customer.phone, {
+          phone: customer.phone,
+          display_name: customer.display_name,
+          assigned_to: customer.assigned_to,
+          flags: customer.flags,
+          last_contact_method: customer.last_contact_method,
+          last_contact_at: customer.last_contact_at,
+          categories: new Map(),
+          taskCounts: {
+            total: 0,
+            in_progress: 0,
+            waiting: 0,
+            complete: 0
+          }
+        });
+      });
+
+      // Process tasks and build hierarchy
+      tasks?.forEach((task: TaskWithDetails) => {
+        if (!task.sub_category?.category?.customer_phone) return;
+
+        const customerPhone = task.sub_category.category.customer_phone;
+        const customer = customerMap.get(customerPhone);
+        
+        if (!customer) return;
+        
+        // Filter by servicer if selected
+        if (selectedServicer && customer.assigned_to !== selectedServicer) return;
+
+        // Get or create category
+        let category = customer.categories.get(task.sub_category.category.id);
+        if (!category) {
+          category = {
+            id: task.sub_category.category.id,
+            name: task.sub_category.category.name,
+            subcategories: new Map()
+          };
+          customer.categories.set(task.sub_category.category.id, category);
+        }
+
+        // Get or create subcategory
+        let subcategory = category.subcategories.get(task.sub_category.id);
+        if (!subcategory) {
+          subcategory = {
+            id: task.sub_category.id,
+            name: task.sub_category.name,
+            overall_status: task.sub_category.overall_status,
+            money_saved: task.sub_category.money_saved,
+            tasks: []
+          };
+          category.subcategories.set(task.sub_category.id, subcategory);
+        }
+
+        // Add task
+        subcategory.tasks.push(task);
+
+        // Update counts
+        customer.taskCounts.total++;
+        if (task.status === 'In Progress') customer.taskCounts.in_progress++;
+        if (task.status === 'Waiting on Info' || task.status === 'Waiting on Partner') {
+          customer.taskCounts.waiting++;
+        }
+        if (task.status === 'Complete') customer.taskCounts.complete++;
+      });
+
+      setCustomerData(customerMap);
+    } catch (error) {
+      console.error('Error fetching data:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const updateTaskStatus = async (taskId: string, newStatus: string, customerAssignedTo?: string) => {
+    if (!supabase) return;
+
+    try {
+      // Build update data with proper types
+      let updateData: any = { 
+        status: newStatus,
         last_updated: new Date().toISOString(),
-        updated_by: currentServicer,
-        communicated: currentUpdate.communicated,
-        communication_method: currentUpdate.communicated ? currentUpdate.communicationMethod : null,
-        no_comm_reason: !currentUpdate.communicated ? currentUpdate.noCommReason : null
+        updated_by: customerAssignedTo || selectedServicer || null  // Include servicer UUID
       };
 
-      const { error } = await supabase
+      // Only set completed_at when status is Complete
+      if (newStatus === 'Complete') {
+        updateData.completed_at = new Date().toISOString();
+      }
+
+      console.log('Updating task:', taskId, 'with data:', updateData);
+
+      const { data, error } = await supabase
         .from('tasks')
         .update(updateData)
-        .eq('id', currentTask.id);
+        .eq('id', taskId)
+        .select();
 
-      if (error) throw error;
-
-      // Create daily update record
-      await supabase
-        .from('daily_updates')
-        .insert({
-          task_id: currentTask.id,
-          update_date: new Date().toISOString().split('T')[0],
-          previous_status: currentTask.status,
-          new_status: currentUpdate.status,
-          previous_notes: currentTask.notes,
-          new_notes: currentUpdate.notes,
-          communicated: currentUpdate.communicated,
-          communication_method: currentUpdate.communicationMethod,
-          no_comm_reason: currentUpdate.noCommReason,
-          updated_by: currentServicer
+      if (error) {
+        console.error('Supabase error:', error);
+        console.error('Error details:', {
+          message: error.message,
+          details: error.details,
+          hint: error.hint,
+          code: error.code
         });
+        throw error;
+      }
 
-      // Remove from updates and refresh
-      const newUpdates = { ...updates };
-      delete newUpdates[currentTask.id];
-      setUpdates(newUpdates);
-      
-      fetchServicerTasks();
+      console.log('Update successful:', data);
+
+      // Refresh data
+      await fetchAllData();
     } catch (error) {
-      console.error('Error saving task:', error);
-    } finally {
-      setSaving(false);
+      console.error('Error updating task:', error);
     }
   };
 
-  const saveAndNext = async () => {
-    await saveCurrentTask();
-    if (currentTaskIndex < tasks.length - 1) {
-      setCurrentTaskIndex(currentTaskIndex + 1);
+  const toggleCustomer = (customerPhone: string) => {
+    const newExpanded = new Set(expandedCustomers);
+    if (newExpanded.has(customerPhone)) {
+      newExpanded.delete(customerPhone);
+    } else {
+      newExpanded.add(customerPhone);
     }
+    setExpandedCustomers(newExpanded);
   };
 
-  const getTaskUrgency = (lastUpdated?: string) => {
-    if (!lastUpdated) return 'never';
-    const daysSince = Math.floor((Date.now() - new Date(lastUpdated).getTime()) / (1000 * 60 * 60 * 24));
-    if (daysSince === 0) return 'today';
-    if (daysSince <= 2) return 'recent';
-    if (daysSince <= 4) return 'warning';
-    return 'critical';
+  const toggleCategory = (categoryId: string) => {
+    const newExpanded = new Set(expandedCategories);
+    if (newExpanded.has(categoryId)) {
+      newExpanded.delete(categoryId);
+    } else {
+      newExpanded.add(categoryId);
+    }
+    setExpandedCategories(newExpanded);
   };
 
-  const urgentTasks = tasks.filter(task => 
-    getTaskUrgency(task.last_updated) === 'critical' || 
-    getTaskUrgency(task.last_updated) === 'never'
-  );
+  const toggleSubcategory = (subcategoryId: string) => {
+    const newExpanded = new Set(expandedSubcategories);
+    if (newExpanded.has(subcategoryId)) {
+      newExpanded.delete(subcategoryId);
+    } else {
+      newExpanded.add(subcategoryId);
+    }
+    setExpandedSubcategories(newExpanded);
+  };
 
-  const tasksNeedingUpdate = tasks.filter(task => 
-    getTaskUrgency(task.last_updated) === 'warning' ||
-    getTaskUrgency(task.last_updated) === 'critical' ||
-    getTaskUrgency(task.last_updated) === 'never'
-  );
+  const getUrgencyColor = (customer: CustomerGrouped) => {
+    if (customer.taskCounts.waiting > 0) return 'text-yellow-600';
+    if (customer.taskCounts.in_progress > 0) return 'text-blue-600';
+    if (customer.taskCounts.total === 0) return 'text-gray-400';
+    return 'text-green-600';
+  };
 
   if (loading && isSupabaseConfigured) {
     return (
@@ -164,258 +292,210 @@ export default function ServicerView() {
     );
   }
 
+  // Convert Map to array for rendering
+  const customersArray = Array.from(customerData.values())
+    .filter(c => c.categories.size > 0) // Only show customers with categories
+    .sort((a, b) => a.display_name.localeCompare(b.display_name));
+
   return (
     <div className="space-y-6">
-      {!isSupabaseConfigured && (
-        <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 mb-6">
-          <div className="flex items-center">
-            <AlertTriangle className="h-5 w-5 text-yellow-600 mr-2" />
-            <p className="text-sm text-yellow-800">
-              <strong>Demo Mode:</strong> You're viewing sample servicer tasks. 
-              Connect to Supabase to manage real task updates.
-            </p>
-          </div>
-        </div>
-      )}
-      
       {isSupabaseConfigured && <SupabaseStatus />}
       
-      <div>
-        <h1 className="text-2xl font-bold text-gray-900">My Tasks</h1>
-        <p className="text-gray-600">
-          Daily task updates for {currentServicer}
-        </p>
+      <div className="flex justify-between items-start">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900">My Tasks</h1>
+          <p className="text-gray-600">Tasks organized by customer, category, and subcategory</p>
+        </div>
+        
+        {isSupabaseConfigured && (
+          <div className="w-64 relative">
+            <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+              <Filter className="h-5 w-5 text-gray-400" />
+            </div>
+            <select
+              value={selectedServicer}
+              onChange={(e) => setSelectedServicer(e.target.value)}
+              className="block w-full pl-10 pr-3 py-2 border border-gray-300 rounded-md leading-5 bg-white focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500 text-sm"
+            >
+              <option value="">All Servicers</option>
+              {servicers.map((servicer) => (
+                <option key={servicer.id} value={servicer.id}>
+                  {servicer.name}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
       </div>
 
-      {/* Task Overview Stats */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <div className="bg-white p-4 rounded-lg border shadow-sm">
-          <div className="flex items-center">
-            <CheckCircle className="h-5 w-5 text-blue-600 mr-2" />
-            <div>
-              <div className="text-lg font-semibold text-gray-900">{tasks.length}</div>
-              <div className="text-xs text-gray-500">Total Tasks</div>
-            </div>
+      <div className="space-y-4">
+        {customersArray.length === 0 ? (
+          <div className="text-center py-12 bg-white rounded-lg border">
+            <User className="mx-auto h-12 w-12 text-gray-400" />
+            <h3 className="mt-2 text-sm font-medium text-gray-900">No tasks found</h3>
+            <p className="mt-1 text-sm text-gray-500">
+              {selectedServicer 
+                ? 'No tasks are assigned to this servicer.'
+                : 'No tasks are currently available.'}
+            </p>
           </div>
-        </div>
-        
-        <div className="bg-white p-4 rounded-lg border shadow-sm">
-          <div className="flex items-center">
-            <Clock className="h-5 w-5 text-yellow-600 mr-2" />
-            <div>
-              <div className="text-lg font-semibold text-gray-900">{tasksNeedingUpdate.length}</div>
-              <div className="text-xs text-gray-500">Need Update</div>
-            </div>
-          </div>
-        </div>
-        
-        <div className="bg-white p-4 rounded-lg border shadow-sm">
-          <div className="flex items-center">
-            <AlertTriangle className="h-5 w-5 text-red-600 mr-2" />
-            <div>
-              <div className="text-lg font-semibold text-gray-900">{urgentTasks.length}</div>
-              <div className="text-xs text-gray-500">Urgent</div>
-            </div>
-          </div>
-        </div>
-        
-        <div className="bg-white p-4 rounded-lg border shadow-sm">
-          <div className="flex items-center">
-            <MessageCircle className="h-5 w-5 text-green-600 mr-2" />
-            <div>
-              <div className="text-lg font-semibold text-gray-900">{Object.keys(updates).length}</div>
-              <div className="text-xs text-gray-500">Updates Ready</div>
-            </div>
-          </div>
-        </div>
-      </div>
+        ) : (
+          customersArray.map((customer) => {
+            const isCustomerExpanded = expandedCustomers.has(customer.phone);
+            const urgencyColor = getUrgencyColor(customer);
 
-      {tasks.length === 0 ? (
-        <div className="text-center py-12 bg-white rounded-lg border">
-          <CheckCircle className="mx-auto h-12 w-12 text-gray-400" />
-          <h3 className="mt-2 text-sm font-medium text-gray-900">No tasks assigned</h3>
-          <p className="mt-1 text-sm text-gray-500">
-            You have no tasks assigned to you at the moment.
-          </p>
-        </div>
-      ) : (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          {/* Task Update Form */}
-          <div className="bg-white rounded-lg border shadow-sm">
-            <div className="px-6 py-4 border-b border-gray-200">
-              <div className="flex items-center justify-between">
-                <h2 className="text-lg font-medium text-gray-900">Update Task</h2>
-                <span className="text-sm text-gray-500">
-                  {currentTaskIndex + 1} of {tasks.length}
-                </span>
-              </div>
-            </div>
-            
-            {currentTask && (
-              <div className="p-6 space-y-6">
-                {/* Task Info */}
-                <div>
-                  <div className="flex items-center text-sm text-gray-500 mb-2">
-                    <span>{currentTask.sub_category?.category?.customer?.display_name}</span>
-                    <ChevronRight className="h-3 w-3 mx-1" />
-                    <span>{currentTask.sub_category?.category?.name}</span>
-                    <ChevronRight className="h-3 w-3 mx-1" />
-                    <span>{currentTask.sub_category?.name}</span>
+            return (
+              <div key={customer.phone} className="bg-white rounded-lg border shadow-sm">
+                {/* Customer Header */}
+                <div
+                  className="px-6 py-4 flex items-center justify-between cursor-pointer hover:bg-gray-50"
+                  onClick={() => toggleCustomer(customer.phone)}
+                >
+                  <div className="flex items-center flex-1">
+                    {isCustomerExpanded ? (
+                      <ChevronDown className="h-5 w-5 text-gray-400 mr-3" />
+                    ) : (
+                      <ChevronRight className="h-5 w-5 text-gray-400 mr-3" />
+                    )}
+                    <User className="h-5 w-5 text-gray-400 mr-2" />
+                    <span className={`font-medium text-lg ${urgencyColor}`}>{customer.display_name}</span>
+                    {customer.flags && customer.flags.length > 0 && (
+                      <div className="ml-3 flex items-center space-x-1">
+                        {customer.flags.map((flag, idx) => (
+                          <span key={idx} className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-red-100 text-red-800">
+                            {flag}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                    <div className="ml-4 flex items-center space-x-3 text-sm text-gray-500">
+                      <span>{customer.taskCounts.in_progress} in progress</span>
+                      <span>{customer.taskCounts.waiting} waiting</span>
+                      <span>{customer.taskCounts.complete} complete</span>
+                    </div>
                   </div>
-                  <h3 className="text-xl font-semibold text-gray-900 mb-2">{currentTask.name}</h3>
-                  <TimeIndicator lastUpdate={currentTask.last_updated} />
-                </div>
-
-                {/* Status Update */}
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Status</label>
-                  <div className="space-y-2">
-                    <select
-                      value={currentUpdate.status}
-                      onChange={(e) => updateCurrentTask('status', e.target.value)}
-                      className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
-                    >
-                      {PREDEFINED_STATUSES.map(status => (
-                        <option key={status} value={status}>{status}</option>
-                      ))}
-                      <option value="Custom">Custom</option>
-                    </select>
-                    {currentUpdate.status === 'Custom' && (
-                      <input
-                        type="text"
-                        value={currentUpdate.customStatus}
-                        onChange={(e) => updateCurrentTask('customStatus', e.target.value)}
-                        placeholder="Enter custom status..."
-                        className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
-                      />
+                  <div className="flex items-center space-x-3">
+                    {customer.last_contact_at && (
+                      <span className="text-sm text-gray-500">
+                        Last {customer.last_contact_method?.toLowerCase() || 'contact'}: {new Date(customer.last_contact_at).toLocaleDateString()}
+                      </span>
                     )}
                   </div>
                 </div>
 
-                {/* Notes */}
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Notes</label>
-                  <textarea
-                    value={currentUpdate.notes}
-                    onChange={(e) => updateCurrentTask('notes', e.target.value)}
-                    rows={4}
-                    className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
-                    placeholder="Add update notes..."
-                  />
-                </div>
+                {/* Categories */}
+                {isCustomerExpanded && (
+                  <div className="border-t">
+                    {Array.from(customer.categories.values()).map((category) => {
+                      const isCategoryExpanded = expandedCategories.has(category.id);
+                      
+                      return (
+                        <div key={category.id} className="border-t first:border-t-0">
+                          {/* Category Header */}
+                          <div
+                            className="px-8 py-3 flex items-center cursor-pointer hover:bg-gray-50 bg-gray-50"
+                            onClick={() => toggleCategory(category.id)}
+                          >
+                            {isCategoryExpanded ? (
+                              <FolderOpen className="h-4 w-4 text-gray-400 mr-2" />
+                            ) : (
+                              <Folder className="h-4 w-4 text-gray-400 mr-2" />
+                            )}
+                            <span className="font-medium text-gray-700">{category.name}</span>
+                            <span className="ml-2 text-xs text-gray-500">
+                              ({category.subcategories.size} subcategories)
+                            </span>
+                          </div>
 
-                {/* Communication Tracking */}
-                <div className="space-y-4">
-                  <div className="flex items-center">
-                    <input
-                      type="checkbox"
-                      id="communicated"
-                      checked={currentUpdate.communicated}
-                      onChange={(e) => updateCurrentTask('communicated', e.target.checked)}
-                      className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
-                    />
-                    <label htmlFor="communicated" className="ml-2 text-sm font-medium text-gray-700">
-                      Communicated to client
-                    </label>
-                  </div>
-                  
-                  {currentUpdate.communicated ? (
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-2">Communication Method</label>
-                      <select
-                        value={currentUpdate.communicationMethod}
-                        onChange={(e) => updateCurrentTask('communicationMethod', e.target.value)}
-                        className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
-                      >
-                        <option value="">Select method...</option>
-                        {COMMUNICATION_METHODS.map(method => (
-                          <option key={method} value={method}>{method}</option>
-                        ))}
-                      </select>
-                    </div>
-                  ) : (
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-2">Reason for no communication</label>
-                      <select
-                        value={currentUpdate.noCommReason}
-                        onChange={(e) => updateCurrentTask('noCommReason', e.target.value)}
-                        className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
-                      >
-                        <option value="">Select reason...</option>
-                        <option value="Client unavailable">Client unavailable</option>
-                        <option value="Waiting for information">Waiting for information</option>
-                        <option value="Technical issues">Technical issues</option>
-                        <option value="Other">Other</option>
-                      </select>
-                    </div>
-                  )}
-                </div>
+                          {/* Subcategories */}
+                          {isCategoryExpanded && (
+                            <div className="bg-white">
+                              {Array.from(category.subcategories.values()).map((subcategory) => {
+                                const isSubcategoryExpanded = expandedSubcategories.has(subcategory.id);
+                                
+                                return (
+                                  <div key={subcategory.id} className="border-t">
+                                    {/* Subcategory Header */}
+                                    <div
+                                      className="px-10 py-2 flex items-center justify-between cursor-pointer hover:bg-gray-50"
+                                      onClick={() => toggleSubcategory(subcategory.id)}
+                                    >
+                                      <div className="flex items-center">
+                                        {isSubcategoryExpanded ? (
+                                          <ChevronDown className="h-4 w-4 text-gray-400 mr-2" />
+                                        ) : (
+                                          <ChevronRight className="h-4 w-4 text-gray-400 mr-2" />
+                                        )}
+                                        <span className="text-sm font-medium text-gray-600">{subcategory.name}</span>
+                                        <span className="ml-2 text-xs text-gray-500">
+                                          ({subcategory.tasks.length} tasks)
+                                        </span>
+                                        {subcategory.overall_status && (
+                                          <span className={`ml-2 inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${
+                                            subcategory.overall_status === 'Optimised' ? 'bg-green-100 text-green-800' :
+                                            subcategory.overall_status === 'In Progress' ? 'bg-blue-100 text-blue-800' :
+                                            subcategory.overall_status === "Can't Optimise" ? 'bg-red-100 text-red-800' :
+                                            'bg-gray-100 text-gray-800'
+                                          }`}>
+                                            {subcategory.overall_status}
+                                          </span>
+                                        )}
+                                        {(subcategory.money_saved || 0) > 0 && (
+                                          <span className="ml-2 text-xs font-medium text-green-600">
+                                            ${(subcategory.money_saved || 0).toFixed(2)} saved
+                                          </span>
+                                        )}
+                                      </div>
+                                    </div>
 
-                {/* Action Buttons */}
-                <div className="flex space-x-3">
-                  <button
-                    onClick={saveCurrentTask}
-                    disabled={saving}
-                    className="flex-1 inline-flex justify-center items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-50 transition-colors"
-                  >
-                    <Save className="h-4 w-4 mr-2" />
-                    {saving ? 'Saving...' : 'Save'}
-                  </button>
-                  <button
-                    onClick={saveAndNext}
-                    disabled={saving || currentTaskIndex >= tasks.length - 1}
-                    className="flex-1 inline-flex justify-center items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-green-600 hover:bg-green-700 disabled:opacity-50 transition-colors"
-                  >
-                    <ChevronRight className="h-4 w-4 mr-2" />
-                    Save & Next
-                  </button>
-                </div>
-              </div>
-            )}
-          </div>
-
-          {/* Task List */}
-          <div className="bg-white rounded-lg border shadow-sm">
-            <div className="px-6 py-4 border-b border-gray-200">
-              <h2 className="text-lg font-medium text-gray-900">All Tasks</h2>
-            </div>
-            
-            <div className="max-h-96 overflow-y-auto">
-              {tasks.map((task, index) => (
-                <div
-                  key={task.id}
-                  onClick={() => setCurrentTaskIndex(index)}
-                  className={`p-4 border-b border-gray-100 cursor-pointer hover:bg-gray-50 transition-colors ${
-                    index === currentTaskIndex ? 'bg-blue-50 border-blue-200' : ''
-                  }`}
-                >
-                  <div className="flex items-center justify-between">
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center text-xs text-gray-500 mb-1">
-                        <span className="truncate">{task.sub_category?.category?.customer?.display_name}</span>
-                        <ChevronRight className="h-3 w-3 mx-1 flex-shrink-0" />
-                        <span className="truncate">{task.sub_category?.category?.name}</span>
-                      </div>
-                      <p className="text-sm font-medium text-gray-900 truncate">{task.name}</p>
-                      <TimeIndicator lastUpdate={task.last_updated} className="mt-1" />
-                    </div>
-                    <div className="ml-4 flex-shrink-0">
-                      <StatusBadge status={task.status} customStatus={task.custom_status} />
-                      {updates[task.id] && (
-                        <div className="mt-1">
-                          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-orange-100 text-orange-800">
-                            Updated
-                          </span>
+                                    {/* Tasks */}
+                                    {isSubcategoryExpanded && (
+                                      <div className="px-12 py-2 bg-gray-50">
+                                        {subcategory.tasks.length === 0 ? (
+                                          <p className="text-sm text-gray-500 py-1">No tasks</p>
+                                        ) : (
+                                          <div className="space-y-1">
+                                            {subcategory.tasks.map((task) => (
+                                              <div key={task.id} className="flex items-center justify-between py-1.5 bg-white px-3 rounded">
+                                                <div className="flex items-center flex-1">
+                                                  <select
+                                                    value={task.status}
+                                                    onChange={(e) => updateTaskStatus(task.id, e.target.value, customer.assigned_to)}
+                                                    className="mr-3 text-xs border-gray-300 rounded focus:ring-blue-500 focus:border-blue-500"
+                                                    onClick={(e) => e.stopPropagation()}
+                                                  >
+                                                    {PREDEFINED_STATUSES.map(status => (
+                                                      <option key={status} value={status}>{status}</option>
+                                                    ))}
+                                                  </select>
+                                                  <span className={`text-sm ${task.status === 'Complete' ? 'text-gray-500 line-through' : 'text-gray-900'}`}>
+                                                    {task.name}
+                                                  </span>
+                                                </div>
+                                                {task.last_updated && (
+                                                  <TimeIndicator lastUpdate={task.last_updated} className="text-xs" />
+                                                )}
+                                              </div>
+                                            ))}
+                                          </div>
+                                        )}
+                                      </div>
+                                    )}
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          )}
                         </div>
-                      )}
-                    </div>
+                      );
+                    })}
                   </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-      )}
+                )}
+              </div>
+            );
+          })
+        )}
+      </div>
     </div>
   );
 }

@@ -1,5 +1,5 @@
 import React from 'react';
-import { Home, Users, Clock, Activity, UserCheck } from 'lucide-react';
+import { Home, Users, Clock, Activity, UserCheck, ArrowUpRight } from 'lucide-react';
 import { Link, useLocation } from 'react-router-dom';
 
 interface LayoutProps {
@@ -12,6 +12,7 @@ export default function Layout({ children }: LayoutProps) {
   const navigation = [
     { name: 'Dashboard', href: '/', icon: Home },
     { name: 'My Tasks', href: '/servicer', icon: UserCheck },
+    { name: 'Up Next', href: '/up-next', icon: ArrowUpRight },
     { name: 'Customers', href: '/customers', icon: Users },
     { name: 'Updates', href: '/updates', icon: Clock },
     { name: 'Reports', href: '/reports', icon: Activity },

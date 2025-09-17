@@ -1,5 +1,5 @@
 import React from 'react';
-import { Database, AlertCircle, ExternalLink } from 'lucide-react';
+import { Database, AlertCircle } from 'lucide-react';
 import { isSupabaseConfigured } from '../lib/supabase';
 
 export default function SupabaseStatus() {

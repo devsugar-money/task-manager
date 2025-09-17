@@ -18,6 +18,12 @@ export type Customer = {
   customer_type?: string;
   created_at: string;
   updated_at: string;
+  notes?: string;
+  description?: string;
+  flags?: string[];
+  last_contact_method?: string;
+  last_contact_at?: string;
+  last_message_at?: string;
 };
 
 export type Category = {
@@ -39,6 +45,8 @@ export type SubCategory = {
   start_time: string;
   last_update?: string;
   status?: string;
+  overall_status?: string;
+  money_saved?: number;
   is_complete: boolean;
   completed_at?: string;
   created_at: string;
@@ -59,6 +67,8 @@ export type Task = {
   communication_method?: string;
   no_comm_reason?: string;
   created_at: string;
+  completed_at?: string;
+  money_saved?: number;
   sub_category?: SubCategory;
 };
 
@@ -88,29 +98,41 @@ export type DailyUpdate = {
 };
 
 export const PREDEFINED_CATEGORIES = [
-  'Insurance',
-  'Utilities', 
-  'Housing',
-  'Investment',
-  'Debt',
-  'Credit Card',
-  'KiwiSaver',
-  'Income',
-  'Tax',
-  'Big Purchases',
   'Banking/Saving',
-  'IRD'
+  'Credit Card',
+  'Debt',
+  'Housing',
+  'Insurance',
+  'Investment',
+  'IRD',
+  'Tax',
+  'Utilities'
 ];
 
 export const PREDEFINED_STATUSES = [
   'Not Started',
-  'Ongoing',
-  'Completed',
+  'In Progress',
+  'Sent Info',
   'Waiting on Info',
   'Waiting on Partner',
-  'Not Done Before',
-  'Slow Info',
-  'Blocked'
+  'Followed Up',
+  'Complete',
+  'N/A'
+];
+
+export const SUBCATEGORY_STATUSES = [
+  'Not Started',
+  'In Progress',
+  'Can\'t Optimise',
+  'Optimised'
+];
+
+export const CUSTOMER_FLAGS = [
+  'Difficult',
+  'Slow',
+  'VIP',
+  'Priority',
+  'New'
 ];
 
 export const COMMUNICATION_METHODS = [
@@ -122,158 +144,252 @@ export const COMMUNICATION_METHODS = [
 ];
 
 export const SUB_CATEGORIES = {
-  'Insurance': [
-    'Life Insurance',
-    'Health Insurance',
-    'Car Insurance', 
-    'Home Insurance',
-    'Contents Insurance',
-    'Income Protection',
-    'Trauma Insurance'
-  ],
-  'Investment': [
-    'KiwiSaver',
-    'Managed Funds',
-    'Term Deposits',
-    'Shares',
-    'Property Investment',
-    'Crypto',
-    'Retirement Planning'
-  ],
-  'Utilities': [
-    'Power',
-    'Gas',
-    'Internet/Broadband',
-    'Mobile Plans',
-    'Water',
-    'Home Security'
-  ],
   'Banking/Saving': [
-    'Current Accounts',
-    'Savings Accounts',
-    'Credit Cards',
-    'Overdrafts',
-    'Automatic Payments',
-    'Direct Debits'
+    'Banking Optimisation'
+  ],
+  'Credit Card': [
+    'Credit Card - Balance Transfer',
+    'Credit Card - Rewards'
   ],
   'Debt': [
-    'Mortgage',
-    'Personal Loans',
-    'Student Loans',
-    'Car Loans',
-    'Hire Purchase',
-    'Store Cards'
-  ],
-  'Tax': [
-    'Tax Returns',
-    'GST Registration',
-    'PAYE',
-    'Tax Codes',
-    'Working for Families',
-    'Tax Refunds'
+    'Debt Consolidation',
+    'New Loan',
+    'Hardship',
+    'Nga Tangata',
+    'Good Shepherd'
   ],
   'Housing': [
-    'Rent/Mortgage',
-    'Rates',
-    'Body Corporate',
-    'Maintenance',
-    'Renovations'
+    'First Home Buyer',
+    'Refinancing Mortgage',
+    'Rent'
   ],
-  'Income': [
-    'Employment',
-    'Benefits',
-    'Side Income',
-    'Passive Income',
-    'Business Income'
+  'Insurance': [
+    'Car Insurance',
+    'Health Insurance',
+    'House Insurance',
+    'Pet Insurance',
+    'Contents Insurance',
+    'Life Insurance'
+  ],
+  'Investment': [
+    'Starting Investing',
+    'Optimising Investments'
+  ],
+  'IRD': [
+    'Unclaimed Money'
+  ],
+  'Tax': [
+    'Tax - Optimisation'
+  ],
+  'Utilities': [
+    'Broadband',
+    'Power',
+    'Mobile',
+    'Gas'
   ]
 };
 
 export const PREDEFINED_TASKS_BY_SUB_CATEGORY: Record<string, string[]> = {
-  // Insurance
-  'Life Insurance': [
-    'Review current policy coverage',
-    'Compare quotes from other providers',
-    'Update beneficiary details',
-    'Assess coverage amount adequacy'
-  ],
-  'Health Insurance': [
-    'Review current policy benefits',
-    'Compare provider options',
-    'Check waiting periods',
-    'Update personal details'
-  ],
-  'Car Insurance': [
-    'Review current policy',
-    'Compare quotes',
-    'Update vehicle details',
-    'Check excess amounts'
-  ],
-  'Home Insurance': [
-    'Review coverage amounts',
-    'Update property value',
-    'Check policy exclusions',
-    'Compare provider quotes'
-  ],
-
-  // Investment
-  'KiwiSaver': [
-    'Review current fund performance',
-    'Consider fund type appropriateness',
-    'Update contribution rate',
-    'Check fees and charges'
-  ],
-  'Managed Funds': [
-    'Review portfolio performance',
-    'Assess risk tolerance',
-    'Compare management fees',
-    'Rebalance investments'
-  ],
-
-  // Utilities
-  'Power': [
-    'Compare electricity providers',
-    'Review current plan rates',
-    'Check for better deals',
-    'Submit switch application'
-  ],
-  'Internet/Broadband': [
-    'Compare internet providers',
-    'Check speed requirements',
-    'Review contract terms',
-    'Schedule installation'
-  ],
-  'Mobile Plans': [
-    'Review current usage',
-    'Compare plan options',
-    'Check contract end date',
-    'Port number if switching'
-  ],
-
   // Banking/Saving
-  'Savings Accounts': [
-    'Compare interest rates',
-    'Review account fees',
-    'Set up automatic transfers',
-    'Open new account if beneficial'
+  'Banking Optimisation': [
+    'Review current situation',
+    'Compare banking providers interest rates',
+    'Suggest optimised savings plan'
   ],
-  'Credit Cards': [
-    'Review interest rates',
-    'Compare reward programs',
-    'Check annual fees',
-    'Consider balance transfer'
+
+  // Credit Card
+  'Credit Card - Balance Transfer': [
+    'Collect recent statements',
+    'Calculate spend vs pay-off',
+    'Compare against other cards on tool',
+    'Suggest new card',
+    'Guide how to switch'
+  ],
+  'Credit Card - Rewards': [
+    'Review current rewards program',
+    'Calculate annual expenditure',
+    'Compare rewards cards on tool',
+    'Calculate annual value',
+    'Suggest optimisation',
+    'Guide how to switch'
   ],
 
   // Debt
-  'Mortgage': [
-    'Review current interest rate',
-    'Compare lender options',
-    'Consider refinancing',
-    'Update loan structure'
+  'Nga Tangata': [
+    'Check Eligibility (Income)',
+    'Get last 2/3 months bank statement',
+    'Create debt schedules',
+    'Create current & proposed budget',
+    'Collect loan statements and all debts',
+    'ID verification',
+    'Collect proof of income (payslip or MSD breakdown)',
+    'Fill in application website',
+    'Financial well-being questionnaire',
+    'Signed by applicant'
   ],
-  'Personal Loans': [
-    'Review loan terms',
-    'Compare refinancing options',
-    'Create repayment strategy',
-    'Consider consolidation'
+  'Good Shepherd': [
+    'Check Eligibility (Income)',
+    'Get bank statement',
+    'Create current & proposed budget',
+    'Collect loan statements and all debts',
+    'Create debt schedule',
+    'ID verification',
+    'Collect proof of income (payslip or MSD breakdown)',
+    'Fill in application website',
+    'Financial well-being questionnaire',
+    'Signed by applicant'
+  ],
+  'Debt Consolidation': [
+    'Collect loan statements and all debts',
+    'Check credit score',
+    'Calculate total debt amount',
+    'Compare consolidation options',
+    'Apply for consolidation loans'
+  ],
+  'New Loan': [
+    'Determine loan amount needed',
+    'Check credit score',
+    'Compare lenders',
+    'Gather income documents',
+    'Submit loan applications',
+    'Choose appropriate loan provider'
+  ],
+  'Hardship': [
+    'Document financial situation',
+    'Send templates for current lenders',
+    'Request hardship variations',
+    'Negotiate payment plans'
+  ],
+
+  // Housing
+  'First Home Buyer': [
+    'Collect all documentation',
+    'Send all information to mortgage partner'
+  ],
+  'Refinancing Mortgage': [
+    'Collect all documentation',
+    'Send all information to mortgage partner'
+  ],
+  'Rent': [
+    'Review current rental cost',
+    'Research market rates',
+    'Check tenancy agreement',
+    'Negotiate with landlord',
+    'Consider relocation options',
+    'Update bond if moving',
+    'Arrange utilities transfer'
+  ],
+
+  // Insurance
+  'Car Insurance': [
+    'Collect vehicle details',
+    'Collect current policy',
+    'Compare quotes online',
+    'Review excess & value options',
+    'Check multi-policy discounts',
+    'Suggest optimisation',
+    'Guide switch'
+  ],
+  'Health Insurance': [
+    'Collect relevant documents',
+    'Send to health insurance partner',
+    'Compare providers yourself',
+    'Suggest optimisation'
+  ],
+  'House Insurance': [
+    'Collect house details',
+    'Collect current policy',
+    'Compare quotes online',
+    'Review excess & value options',
+    'Check multi-policy discounts',
+    'Suggest optimisation',
+    'Guide switch'
+  ],
+  'Pet Insurance': [
+    'Get pet details',
+    'Compare coverage options',
+    'Review exclusions',
+    'Get quotes',
+    'Suggest optimisation'
+  ],
+  'Contents Insurance': [
+    'Collect contents details',
+    'Collect current policy',
+    'Compare quotes online',
+    'Review excess & value options',
+    'Check multi-policy discounts',
+    'Suggest optimisation',
+    'Guide switch'
+  ],
+  'Life Insurance': [
+    'Collect relevant documents',
+    'Send to health insurance partner',
+    'Compare providers yourself',
+    'Suggest optimisation'
+  ],
+
+  // Investment
+  'Starting Investing': [
+    'Determine investment goals',
+    'Assess risk tolerance',
+    'Research investment options',
+    'Choose platform/broker',
+    'Open investment account',
+    'Make initial deposit',
+    'Select first investments',
+    'Set up regular contributions'
+  ],
+  'Optimising Investments': [
+    'Review current portfolio',
+    'Assess performance',
+    'Rebalance if needed',
+    'Consider tax implications(optional)',
+    'Update investment strategy',
+    'Consolidate if beneficial'
+  ],
+
+  // IRD
+  'Unclaimed Money': [
+    'Check IRD unclaimed money database',
+    'Submit claim forms',
+    'Communicate with client'
+  ],
+
+  // Tax
+  'Tax - Optimisation': [
+    'Review income',
+    'Send client A&A authority form',
+    'Update client'
+  ],
+
+  // Utilities
+  'Broadband': [
+    'Get recent bill',
+    'Compare providers',
+    'Check bundle options',
+    'Suggest optimisation'
+  ],
+  'Power': [
+    'Get recent bills',
+    'Check current rates',
+    'Compare providers',
+    'Check bundle options',
+    'Suggest optimisation',
+    'Guide through switch'
+  ],
+  'Mobile': [
+    'Get recent bill',
+    'Compare plans',
+    'Check coverage maps',
+    'Suggest optimisation',
+    'Guide through switch'
+  ],
+  'Gas': [
+    'Get recent bills',
+    'Check current rates',
+    'Compare providers',
+    'Check bundle options',
+    'Suggest optimisation',
+    'Guide through switch'
   ]
 };

@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import { Search, Plus, User, Clock, AlertTriangle, AlertCircle, Filter } from 'lucide-react';
+import { Search, Plus, User, AlertTriangle, AlertCircle, Filter } from 'lucide-react';
 import { supabase, isSupabaseConfigured, Customer, TeamMember } from '../lib/supabase';
 import taskService from '../services/taskService';
 import TimeIndicator from '../components/TimeIndicator';
@@ -192,9 +192,20 @@ export default function Customers() {
                       <User className="h-5 w-5 text-blue-600" />
                     </div>
                     <div className="ml-4">
-                      <h3 className="text-lg font-medium text-gray-900 group-hover:text-blue-600 transition-colors">
-                        {customer.display_name}
-                      </h3>
+                      <div className="flex items-center gap-2">
+                        <h3 className="text-lg font-medium text-gray-900 group-hover:text-blue-600 transition-colors">
+                          {customer.display_name}
+                        </h3>
+                        {customer.flags && customer.flags.length > 0 && (
+                          <div className="flex gap-1">
+                            {customer.flags.map((flag, idx) => (
+                              <span key={idx} className="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-red-100 text-red-800">
+                                {flag}
+                              </span>
+                            ))}
+                          </div>
+                        )}
+                      </div>
                       <p className="text-sm text-gray-500">{customer.email}</p>
                       {isSupabaseConfigured && (
                         <p className="text-xs text-gray-400">

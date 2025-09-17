@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { AlertCircle, CheckCircle, Clock, Users, Database } from 'lucide-react';
+import { AlertCircle, CheckCircle, Clock, Users, User } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
 import taskService from '../services/taskService';
@@ -34,9 +34,12 @@ export default function Dashboard() {
   const [recentUpdates, setRecentUpdates] = useState<RecentUpdate[]>(mockRecentUpdates);
   const [urgentTasks, setUrgentTasks] = useState<Task[]>(mockUrgentTasks);
   const [loading, setLoading] = useState(true);
+  const [selectedServicer, setSelectedServicer] = useState<string>('');
+  const [servicers, setServicers] = useState<Array<{id: string, name: string}>>([]);
 
   useEffect(() => {
     if (isSupabaseConfigured && supabase) {
+      fetchServicers();
       fetchDashboardData();
     } else {
       setLoading(false);
@@ -45,21 +48,37 @@ export default function Dashboard() {
       setRecentUpdates(mockRecentUpdates);
       setUrgentTasks(mockUrgentTasks);
     }
-  }, []);
+  }, [selectedServicer]);
+
+  const fetchServicers = async () => {
+    if (!supabase) return;
+
+    try {
+      const { data, error } = await supabase
+        .from('tbl_team_member')
+        .select('id, name')
+        .order('name');
+
+      if (error) throw error;
+      setServicers(data || []);
+    } catch (error) {
+      console.error('Error fetching servicers:', error);
+    }
+  };
 
   const fetchDashboardData = async () => {
     
     try {
       // Get dashboard stats using the task service
-      const dashboardStats = await taskService.getDashboardStats();
+      const dashboardStats = await taskService.getDashboardStats(selectedServicer);
       setStats(dashboardStats);
 
       // Get urgent tasks (stale for 2+ days)
-      const urgentTasksData = await taskService.fetchStaleTasks(2);
+      const urgentTasksData = await taskService.fetchStaleTasks(2, selectedServicer);
       setUrgentTasks(urgentTasksData.slice(0, 10));
 
       // Get recent updates
-      const recentUpdatesData = await taskService.getRecentUpdates(10);
+      const recentUpdatesData = await taskService.getRecentUpdates(10, selectedServicer);
       setRecentUpdates(recentUpdatesData);
     } catch (error) {
       console.error('Error fetching dashboard data:', error);
@@ -92,11 +111,30 @@ export default function Dashboard() {
       
       {isSupabaseConfigured && <SupabaseStatus />}
       
-      <div>
-        <h1 className="text-2xl font-bold text-gray-900">Dashboard</h1>
-        <p className="text-gray-600">
-          Overview of your task management system
-        </p>
+      <div className="flex justify-between items-center">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900">Dashboard</h1>
+          <p className="text-gray-600">
+            Overview of your task management system
+          </p>
+        </div>
+        {isSupabaseConfigured && servicers.length > 0 && (
+          <div className="flex items-center space-x-2">
+            <User className="h-5 w-5 text-gray-400" />
+            <select
+              value={selectedServicer}
+              onChange={(e) => setSelectedServicer(e.target.value)}
+              className="block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+            >
+              <option value="">All Servicers</option>
+              {servicers.map(servicer => (
+                <option key={servicer.id} value={servicer.id}>
+                  {servicer.name}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
       </div>
 
       {/* Stats Grid */}

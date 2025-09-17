@@ -1,8 +1,6 @@
 // services/taskService.ts
 // Drop-in replacement service that fixes all Supabase query errors
 
-import { supabase, isSupabaseConfigured } from '../lib/supabase';
-
 import { supabase } from '../lib/supabase';
 
 /**
@@ -135,9 +133,16 @@ export async function fetchCustomerTasks(customerPhone: string) {
 /**
  * Fetch stale tasks (not updated within threshold days)
  */
-export async function fetchStaleTasks(thresholdDays: number = 3) {
+export async function fetchStaleTasks(thresholdDays: number = 3, servicerUUID?: string) {
   try {
-    const tasks = await fetchAllTasksWithRelationships();
+    let tasks = await fetchAllTasksWithRelationships();
+    
+    // Filter by servicer if provided
+    if (servicerUUID) {
+      tasks = tasks.filter(task => 
+        task.sub_category?.category?.customer?.assigned_to === servicerUUID
+      );
+    }
     
     const thresholdDate = new Date();
     thresholdDate.setDate(thresholdDate.getDate() - thresholdDays);
@@ -191,9 +196,16 @@ export async function getCustomerStats(customerPhone: string) {
 /**
  * Get dashboard statistics
  */
-export async function getDashboardStats() {
+export async function getDashboardStats(servicerUUID?: string) {
   try {
-    const tasks = await fetchAllTasksWithRelationships();
+    let tasks = await fetchAllTasksWithRelationships();
+    
+    // Filter by servicer if provided
+    if (servicerUUID) {
+      tasks = tasks.filter(task => 
+        task.sub_category?.category?.customer?.assigned_to === servicerUUID
+      );
+    }
     
     const now = new Date();
     const staleThreshold = new Date(now.getTime() - 3 * 24 * 60 * 60 * 1000);
@@ -234,9 +246,16 @@ export async function getDashboardStats() {
 /**
  * Get recent task updates
  */
-export async function getRecentUpdates(limit: number = 10) {
+export async function getRecentUpdates(limit: number = 10, servicerUUID?: string) {
   try {
-    const tasks = await fetchAllTasksWithRelationships();
+    let tasks = await fetchAllTasksWithRelationships();
+    
+    // Filter by servicer if provided
+    if (servicerUUID) {
+      tasks = tasks.filter(task => 
+        task.sub_category?.category?.customer?.assigned_to === servicerUUID
+      );
+    }
     
     // Filter for tasks with updates and sort by most recent
     const recentTasks = tasks
