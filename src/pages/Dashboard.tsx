@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { AlertCircle, CheckCircle, Clock, Users, User, DollarSign } from 'lucide-react';
+import { AlertCircle, CheckCircle, Clock, Users, User, DollarSign, Calendar } from 'lucide-react';
 import { Link } from 'react-router-dom';
-import { supabase, isSupabaseConfigured } from '../lib/supabase';
+import { supabase, isSupabaseConfigured, PREDEFINED_STATUSES } from '../lib/supabase';
 import taskService from '../services/taskService';
 import TimeIndicator from '../components/TimeIndicator';
 import StatusBadge from '../components/StatusBadge';
@@ -50,6 +50,8 @@ export default function Dashboard() {
   });
   const [servicers, setServicers] = useState<Array<{id: string, name: string}>>([]);
   const [servicerAnalytics, setServicerAnalytics] = useState<ServicerAnalytics[]>([]);
+  const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
+  const [taskDates, setTaskDates] = useState<Record<string, string>>({});
 
   useEffect(() => {
     if (isSupabaseConfigured && supabase) {
@@ -183,6 +185,62 @@ export default function Dashboard() {
       console.error('Error fetching dashboard data:', error);
     } finally {
       setLoading(false);
+    }
+  };
+  
+  const updateTaskStatus = async (taskId: string, newStatus: string) => {
+    if (!supabase) return;
+    
+    try {
+      const updateData: any = { 
+        status: newStatus,
+        last_updated: new Date().toISOString()
+      };
+      
+      // Set completed_at if marking as complete
+      if (newStatus === 'Complete') {
+        updateData.completed_at = new Date().toISOString();
+      }
+      
+      const { error } = await supabase
+        .from('tasks')
+        .update(updateData)
+        .eq('id', taskId);
+
+      if (error) throw error;
+      
+      // Update local state immediately
+      setUrgentTasks(prev => prev.map(task => 
+        task.id === taskId ? { ...task, status: newStatus } : task
+      ));
+      
+      // Refresh data after a short delay
+      setTimeout(() => fetchDashboardData(), 1000);
+    } catch (error) {
+      console.error('Error updating task status:', error);
+    }
+  };
+  
+  const updateTaskDate = async (taskId: string, date: string) => {
+    if (!supabase) return;
+    
+    try {
+      const { error } = await supabase
+        .from('tasks')
+        .update({ 
+          last_updated: date ? new Date(date).toISOString() : new Date().toISOString()
+        })
+        .eq('id', taskId);
+
+      if (error) throw error;
+      
+      // Update local state
+      setTaskDates(prev => ({ ...prev, [taskId]: date }));
+      
+      // Refresh data after a short delay
+      setTimeout(() => fetchDashboardData(), 1000);
+    } catch (error) {
+      console.error('Error updating task date:', error);
     }
   };
 
@@ -370,18 +428,49 @@ export default function Dashboard() {
             ) : (
               <div className="space-y-3">
                 {urgentTasks.map((task) => (
-                  <div key={task.id} className="flex items-center justify-between p-3 bg-red-50 rounded-lg border border-red-200">
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium text-gray-900 truncate">
-                        {task.sub_category?.category?.customer?.display_name}
-                      </p>
-                      <p className="text-sm text-gray-500 truncate">
-                        {task.sub_category?.category?.name} → {task.sub_category?.name} → {task.name}
-                      </p>
-                      <TimeIndicator lastUpdate={task.last_updated} className="mt-1" />
+                  <div key={task.id} className="p-3 bg-red-50 rounded-lg border border-red-200">
+                    <div className="flex items-start justify-between">
+                      <div className="flex-1 min-w-0">
+                        <Link 
+                          to={`/customers/${task.sub_category?.category?.customer?.phone}`}
+                          className="text-sm font-medium text-gray-900 hover:text-blue-600 truncate block"
+                        >
+                          {task.sub_category?.category?.customer?.display_name}
+                        </Link>
+                        <p className="text-sm text-gray-500 truncate">
+                          {task.sub_category?.category?.name} → {task.sub_category?.name} → {task.name}
+                        </p>
+                        <TimeIndicator lastUpdate={task.last_updated} className="mt-1" />
+                      </div>
                     </div>
-                    <div className="ml-4 flex-shrink-0">
-                      <StatusBadge status={task.status} customStatus={task.custom_status} />
+                    <div className="mt-3 flex items-center justify-between">
+                      <div className="flex items-center space-x-2">
+                        <select
+                          value={task.status}
+                          onChange={(e) => updateTaskStatus(task.id, e.target.value)}
+                          className="text-xs border-gray-300 rounded focus:ring-blue-500 focus:border-blue-500"
+                        >
+                          {PREDEFINED_STATUSES.map(status => (
+                            <option key={status} value={status}>{status}</option>
+                          ))}
+                        </select>
+                        {task.status !== 'Not Started' && (
+                          <input
+                            type="date"
+                            value={taskDates[task.id] || (task.last_updated ? new Date(task.last_updated).toISOString().split('T')[0] : '')}
+                            onChange={(e) => updateTaskDate(task.id, e.target.value)}
+                            className="text-xs border-gray-300 rounded focus:ring-blue-500 focus:border-blue-500"
+                            title="Last action date"
+                          />
+                        )}
+                      </div>
+                      <input
+                        type="checkbox"
+                        checked={task.status === 'Complete'}
+                        onChange={(e) => updateTaskStatus(task.id, e.target.checked ? 'Complete' : 'In Progress')}
+                        className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+                        title="Mark as complete"
+                      />
                     </div>
                   </div>
                 ))}
