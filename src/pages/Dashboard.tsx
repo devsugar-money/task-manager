@@ -29,8 +29,9 @@ interface ServicerAnalytics {
   servicerName: string;
   totalSavings: number;
   totalCustomers: number;
-  completedTasks: number;
-  activeTasks: number;
+  completedSubCategories: number;
+  inProgressSubCategories: number;
+  totalSubCategories: number;
 }
 
 export default function Dashboard() {
@@ -118,23 +119,40 @@ export default function Dashboard() {
             });
           });
           
-          // Get task counts - simplified query
-          const { data: allTasks } = await supabase
-            .from('tasks')
+          // Get subcategory counts instead of task counts
+          const { data: subCategoriesData } = await supabase
+            .from('sub_categories')
             .select(`
               id,
-              status,
-              sub_category:sub_categories!inner(
-                id,
-                category:categories!inner(
-                  customer_phone
-                )
+              overall_status,
+              tasks (
+                status
+              ),
+              category:categories!inner(
+                customer_phone
               )
             `)
-            .in('sub_category.category.customer_phone', customerPhones);
+            .in('category.customer_phone', customerPhones);
           
-          const completedTasks = allTasks?.filter(t => t.status === 'Complete').length || 0;
-          const activeTasks = allTasks?.filter(t => t.status !== 'Complete' && t.status !== 'N/A').length || 0;
+          // Calculate subcategory statuses based on their tasks
+          let completedSubCategories = 0;
+          let inProgressSubCategories = 0;
+          
+          subCategoriesData?.forEach(subCat => {
+            const tasks = subCat.tasks || [];
+            const completedTasks = tasks.filter((t: any) => t.status === 'Complete').length;
+            const totalTasks = tasks.length;
+            
+            if (totalTasks === 0) {
+              // No tasks, consider as not started
+            } else if (completedTasks === totalTasks) {
+              completedSubCategories++;
+            } else if (completedTasks > 0 || tasks.some((t: any) => t.status !== 'Not Started')) {
+              inProgressSubCategories++;
+            }
+          });
+          
+          const totalSubCategories = subCategoriesData?.length || 0;
           
           // Find servicer name
           const servicerName = servicers.find(s => s.id === selectedServicer)?.name || 'Selected Servicer';
@@ -144,8 +162,9 @@ export default function Dashboard() {
             servicerName,
             totalSavings,
             totalCustomers: customerPhones.length,
-            completedTasks,
-            activeTasks
+            completedSubCategories,
+            inProgressSubCategories,
+            totalSubCategories
           }]);
         } else {
           setServicerAnalytics([]);
@@ -303,15 +322,16 @@ export default function Dashboard() {
                 </div>
               </div>
               <div className="bg-purple-50 rounded-lg p-3 border border-purple-200">
-                <div className="text-xs text-purple-600 font-medium mb-1">Completed Tasks</div>
+                <div className="text-xs text-purple-600 font-medium mb-1">Services Complete</div>
                 <div className="text-xl font-bold text-purple-700">
-                  {servicerAnalytics[0].completedTasks}
+                  {servicerAnalytics[0].completedSubCategories}
+                  <span className="text-sm font-normal text-purple-600">/{servicerAnalytics[0].totalSubCategories}</span>
                 </div>
               </div>
               <div className="bg-orange-50 rounded-lg p-3 border border-orange-200">
-                <div className="text-xs text-orange-600 font-medium mb-1">Active Tasks</div>
+                <div className="text-xs text-orange-600 font-medium mb-1">In Progress</div>
                 <div className="text-xl font-bold text-orange-700">
-                  {servicerAnalytics[0].activeTasks}
+                  {servicerAnalytics[0].inProgressSubCategories}
                 </div>
               </div>
               <div className="bg-gray-50 rounded-lg p-3 border border-gray-200">

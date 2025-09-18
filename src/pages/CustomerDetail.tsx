@@ -9,6 +9,7 @@ import TimeSinceContact from '../components/TimeSinceContact';
 interface ExtendedSubCategory extends SubCategory {
   tasks?: ExtendedTask[];
   category_name?: string;
+  bundle_group?: string;
 }
 
 interface ExtendedTask extends Task {
@@ -52,6 +53,7 @@ export default function CustomerDetail() {
   const [editingDescription, setEditingDescription] = useState(false);
   const [editingNotes, setEditingNotes] = useState(false);
   const [totalMoneySaved, setTotalMoneySaved] = useState(0);
+  const [bundledSavings, setBundledSavings] = useState<Record<string, number>>({});
   const [statusChangeModal, setStatusChangeModal] = useState<{taskId: string, taskName: string, newStatus: string} | null>(null);
   const [statusChangeComment, setStatusChangeComment] = useState('');
   const [deleteConfirmModal, setDeleteConfirmModal] = useState<{
@@ -110,9 +112,12 @@ export default function CustomerDetail() {
       const allSubCategories: ExtendedSubCategory[] = [];
       categoriesData?.forEach(category => {
         category.sub_categories?.forEach((subCat: ExtendedSubCategory) => {
-          // Sort tasks by ID to maintain consistent position
-          const sortedTasks = subCat.tasks ? [...subCat.tasks].sort((a, b) => {
-            // Sort by ID (creation order) to maintain stable positioning
+          // Sort tasks by position (or ID as fallback) to maintain consistent order
+          const sortedTasks = subCat.tasks ? [...subCat.tasks].sort((a: any, b: any) => {
+            // Sort by position if available, otherwise by ID
+            if (a.position !== undefined && b.position !== undefined) {
+              return a.position - b.position;
+            }
             return a.id.localeCompare(b.id);
           }) : [];
           
@@ -133,11 +138,20 @@ export default function CustomerDetail() {
 
       setSubCategories(allSubCategories);
 
-      // Calculate total money saved from subcategories
+      // Calculate total money saved and bundled savings
       const total = allSubCategories.reduce((sum, subCat) => {
         return sum + (subCat.money_saved || 0);
       }, 0);
       setTotalMoneySaved(total);
+      
+      // Calculate bundled savings for grouped subcategories
+      const bundles: Record<string, number> = {};
+      allSubCategories.forEach(subCat => {
+        if (subCat.bundle_group) {
+          bundles[subCat.bundle_group] = (bundles[subCat.bundle_group] || 0) + (subCat.money_saved || 0);
+        }
+      });
+      setBundledSavings(bundles);
 
       // Fetch recent communications from daily_updates
       const { data: commsData, error: commsError } = await supabase
@@ -677,6 +691,17 @@ export default function CustomerDetail() {
               <div>
                 <h3 className="text-sm font-medium text-green-900">Total Savings</h3>
                 <p className="text-2xl font-bold text-green-700">${totalMoneySaved.toFixed(2)}</p>
+                {Object.keys(bundledSavings).length > 0 && (
+                  <div className="mt-2 pt-2 border-t border-green-200">
+                    <p className="text-xs text-green-800 font-medium mb-1">Bundled Savings:</p>
+                    {Object.entries(bundledSavings).map(([bundle, amount]) => (
+                      <div key={bundle} className="flex justify-between text-xs">
+                        <span className="text-green-700 capitalize">{bundle}:</span>
+                        <span className="text-green-800 font-semibold">${amount.toFixed(2)}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             </div>
           </div>
