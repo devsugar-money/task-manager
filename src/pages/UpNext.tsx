@@ -24,7 +24,9 @@ interface UpNextTask {
 export default function UpNext() {
   const [tasks, setTasks] = useState<UpNextTask[]>([]);
   const [loading, setLoading] = useState(true);
-  const [selectedServicer, setSelectedServicer] = useState<string>('');
+  const [selectedServicer, setSelectedServicer] = useState<string>(() => {
+    return localStorage.getItem('selectedServicer') || '';
+  });
   const [servicers, setServicers] = useState<Array<{id: string, name: string}>>([]);
 
   useEffect(() => {
@@ -221,7 +223,15 @@ export default function UpNext() {
           <label className="block text-sm font-medium text-gray-700 mb-1">Filter by Servicer</label>
           <select
             value={selectedServicer}
-            onChange={(e) => setSelectedServicer(e.target.value)}
+            onChange={(e) => {
+                const value = e.target.value;
+                setSelectedServicer(value);
+                if (value) {
+                  localStorage.setItem('selectedServicer', value);
+                } else {
+                  localStorage.removeItem('selectedServicer');
+                }
+              }}
             className="block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
           >
             <option value="">All Servicers</option>

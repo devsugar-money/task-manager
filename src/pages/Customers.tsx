@@ -17,7 +17,9 @@ export default function Customers() {
   const [customers, setCustomers] = useState<CustomerWithStats[]>(mockCustomers as CustomerWithStats[]);
   const [servicers, setServicers] = useState<TeamMember[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
-  const [selectedServicer, setSelectedServicer] = useState<string>('');
+  const [selectedServicer, setSelectedServicer] = useState<string>(() => {
+    return localStorage.getItem('selectedServicer') || '';
+  });
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -154,7 +156,15 @@ export default function Customers() {
             </div>
             <select
               value={selectedServicer}
-              onChange={(e) => setSelectedServicer(e.target.value)}
+              onChange={(e) => {
+                const value = e.target.value;
+                setSelectedServicer(value);
+                if (value) {
+                  localStorage.setItem('selectedServicer', value);
+                } else {
+                  localStorage.removeItem('selectedServicer');
+                }
+              }}
               className="block w-full pl-10 pr-3 py-2 border border-gray-300 rounded-md leading-5 bg-white focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500 text-sm"
             >
               <option value="">All Servicers</option>
