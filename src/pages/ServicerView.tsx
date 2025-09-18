@@ -460,13 +460,26 @@ export default function ServicerView() {
                                                 <div className="flex items-center flex-1">
                                                   <select
                                                     value={task.status}
-                                                    onChange={(e) => updateTaskStatus(task.id, e.target.value, customer.assigned_to)}
+                                                    onChange={(e) => {
+                                                      const value = e.target.value;
+                                                      if (value === 'Custom...') {
+                                                        const customStatus = prompt('Enter custom status:');
+                                                        if (customStatus) {
+                                                          updateTaskStatus(task.id, customStatus, customer.assigned_to);
+                                                        }
+                                                      } else {
+                                                        updateTaskStatus(task.id, value, customer.assigned_to);
+                                                      }
+                                                    }}
                                                     className="mr-3 text-xs border-gray-300 rounded focus:ring-blue-500 focus:border-blue-500"
                                                     onClick={(e) => e.stopPropagation()}
                                                   >
                                                     {PREDEFINED_STATUSES.map(status => (
                                                       <option key={status} value={status}>{status}</option>
                                                     ))}
+                                                    {task.custom_status && !PREDEFINED_STATUSES.includes(task.status) && (
+                                                      <option value={task.status}>{task.status}</option>
+                                                    )}
                                                   </select>
                                                   <span className={`text-sm ${task.status === 'Complete' ? 'text-gray-500 line-through' : 'text-gray-900'}`}>
                                                     {task.name}

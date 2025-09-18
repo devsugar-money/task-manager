@@ -151,7 +151,8 @@ export const PREDEFINED_STATUSES = [
   'Waiting on Partner',
   'Followed Up',
   'Complete',
-  'N/A'
+  'N/A',
+  'Custom...'
 ];
 
 export const SUBCATEGORY_STATUSES = [

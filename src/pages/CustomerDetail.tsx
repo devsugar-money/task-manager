@@ -908,13 +908,26 @@ export default function CustomerDetail() {
                                     />
                                     <select
                                       value={task.status}
-                                      onChange={(e) => handleStatusChange(task.id, task.name, e.target.value)}
+                                      onChange={(e) => {
+                                        const value = e.target.value;
+                                        if (value === 'Custom...') {
+                                          const customStatus = prompt('Enter custom status:');
+                                          if (customStatus) {
+                                            handleStatusChange(task.id, task.name, customStatus);
+                                          }
+                                        } else {
+                                          handleStatusChange(task.id, task.name, value);
+                                        }
+                                      }}
                                       className="mr-3 text-sm border-gray-300 rounded focus:ring-blue-500 focus:border-blue-500"
                                       onClick={(e) => e.stopPropagation()}
                                     >
                                       {PREDEFINED_STATUSES.map(status => (
                                         <option key={status} value={status}>{status}</option>
                                       ))}
+                                      {task.custom_status && !PREDEFINED_STATUSES.includes(task.status) && (
+                                        <option value={task.status}>{task.status}</option>
+                                      )}
                                     </select>
                                     <span className={`text-sm flex-1 ${task.status === 'Complete' ? 'text-gray-500 line-through' : 'text-gray-900'}`}>
                                       {task.name}
