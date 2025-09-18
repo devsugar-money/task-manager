@@ -39,6 +39,7 @@ export default function CustomerDetail() {
   const [newSubCategoryName, setNewSubCategoryName] = useState('');
   const [loading, setLoading] = useState(true);
   const [moneySavedInputs, setMoneySavedInputs] = useState<Record<string, number>>({});
+  const [taskDateInputs, setTaskDateInputs] = useState<Record<string, string>>({});
   const [communications, setCommunications] = useState<Array<{
     id: string;
     created_at: string;
@@ -150,10 +151,23 @@ export default function CustomerDetail() {
       
       // Initialize money saved inputs with current values
       const initialMoneySaved: Record<string, number> = {};
+      const initialDates: Record<string, string> = {};
+      
       allSubCategories.forEach(subCat => {
         initialMoneySaved[subCat.id] = subCat.money_saved || 0;
+        
+        // Initialize date inputs for tasks
+        subCat.tasks?.forEach(task => {
+          if (task.status === 'Complete' && task.completed_at) {
+            initialDates[task.id] = new Date(task.completed_at).toISOString().split('T')[0];
+          } else if (task.last_updated) {
+            initialDates[task.id] = new Date(task.last_updated).toISOString().split('T')[0];
+          }
+        });
       });
+      
       setMoneySavedInputs(initialMoneySaved);
+      setTaskDateInputs(initialDates);
 
       // Calculate total money saved and bundled savings
       const total = allSubCategories.reduce((sum, subCat) => {
@@ -437,6 +451,31 @@ export default function CustomerDetail() {
     const amount = parseFloat(value) || 0;
     setMoneySavedInputs(prev => ({ ...prev, [subCategoryId]: amount }));
     debouncedUpdateMoneySaved(subCategoryId, amount);
+  };
+  
+  // Debounced handlers for date updates
+  const debouncedUpdateCompletedDate = useCallback(
+    debounce((taskId: string, date: string) => {
+      updateTaskCompletedDate(taskId, date);
+    }, 500),
+    []
+  );
+  
+  const debouncedUpdateLastUpdated = useCallback(
+    debounce((taskId: string, date: string) => {
+      updateTaskLastUpdated(taskId, date);
+    }, 500),
+    []
+  );
+  
+  const handleTaskDateChange = (taskId: string, date: string, isComplete: boolean) => {
+    setTaskDateInputs(prev => ({ ...prev, [taskId]: date }));
+    
+    if (isComplete) {
+      debouncedUpdateCompletedDate(taskId, date);
+    } else {
+      debouncedUpdateLastUpdated(taskId, date);
+    }
   };
 
   const updateSubCategoryStatus = async (subCategoryId: string, newStatus: string) => {
@@ -1084,19 +1123,15 @@ export default function CustomerDetail() {
                                         <input
                                           type="date"
                                           value={
-                                            task.status === 'Complete' && task.completed_at 
+                                            taskDateInputs[task.id] || 
+                                            (task.status === 'Complete' && task.completed_at 
                                               ? new Date(task.completed_at).toISOString().split('T')[0]
                                               : task.last_updated 
                                               ? new Date(task.last_updated).toISOString().split('T')[0]
-                                              : ''
+                                              : '')
                                           }
                                           onChange={(e) => {
-                                            if (task.status === 'Complete') {
-                                              updateTaskCompletedDate(task.id, e.target.value);
-                                            } else {
-                                              // For any other status (including Waiting On Partner), update last_updated
-                                              updateTaskLastUpdated(task.id, e.target.value);
-                                            }
+                                            handleTaskDateChange(task.id, e.target.value, task.status === 'Complete');
                                           }}
                                           className="text-xs border-gray-300 rounded focus:ring-blue-500 focus:border-blue-500"
                                           title={task.status === 'Complete' ? "Completion date" : "Last action date"}
