@@ -71,9 +71,9 @@ export default function CustomerDetail() {
     if (!supabase) return;
     
     try {
-      // Fetch customer
+      // Fetch customer from view to get last_message_at for WhatsApp
       const { data: customerData, error: customerError } = await supabase
-        .from('tbl_customer')
+        .from('v_customer_with_assignment')
         .select('*')
         .eq('phone', customerPhone)
         .single();
@@ -84,9 +84,9 @@ export default function CustomerDetail() {
       setCustomerDescription(customerData.description || '');
       setCustomerFlags(customerData.flags || []);
       
-      // Set last contact times for Email and WhatsApp
+      // Set last contact times - use last_message_at for WhatsApp
       setLastEmailContact(customerData.last_email_contact || null);
-      setLastWhatsAppContact(customerData.last_whatsapp_contact || null);
+      setLastWhatsAppContact(customerData.last_message_at || null);
 
       // Fetch all categories and subcategories with tasks
       const { data: categoriesData, error: categoriesError } = await supabase
@@ -110,10 +110,16 @@ export default function CustomerDetail() {
       const allSubCategories: ExtendedSubCategory[] = [];
       categoriesData?.forEach(category => {
         category.sub_categories?.forEach((subCat: ExtendedSubCategory) => {
-          // Don't sort tasks - keep them in their original order from the database
+          // Sort tasks by ID to maintain consistent position
+          const sortedTasks = subCat.tasks ? [...subCat.tasks].sort((a, b) => {
+            // Sort by ID (creation order) to maintain stable positioning
+            return a.id.localeCompare(b.id);
+          }) : [];
+          
           allSubCategories.push({
             ...subCat,
-            category_name: category.name
+            category_name: category.name,
+            tasks: sortedTasks
           });
         });
       });
@@ -503,17 +509,13 @@ export default function CustomerDetail() {
       // Build update object based on method
       const updateData: any = {
         last_contact_at: now,
-        last_contact_method: method,
-        last_message_at: now
+        last_contact_method: method
       };
       
-      // Add specific field for Email or WhatsApp
+      // Only update Email - WhatsApp is tracked via last_message_at automatically
       if (method === 'Email') {
         updateData.last_email_contact = now;
         setLastEmailContact(now);
-      } else if (method === 'WhatsApp') {
-        updateData.last_whatsapp_contact = now;
-        setLastWhatsAppContact(now);
       }
       
       // Update customer's last contact time and method
@@ -705,21 +707,17 @@ export default function CustomerDetail() {
               </button>
             </div>
             
-            {/* WhatsApp Section */}
+            {/* WhatsApp Section - Read-only, tracked automatically */}
             <div className="flex items-center justify-between">
               <div className="flex-1">
                 <TimeSinceContact 
                   lastContactDate={lastWhatsAppContact} 
-                  method="WhatsApp" 
+                  method="WhatsApp (Auto)" 
                 />
               </div>
-              <button
-                onClick={() => quickLogCommunication('WhatsApp')}
-                className="ml-3 px-3 py-1 text-xs font-medium text-white bg-green-600 hover:bg-green-700 rounded"
-                title="Log WhatsApp contact"
-              >
-                WhatsApp
-              </button>
+              <span className="ml-3 px-3 py-1 text-xs text-gray-500 italic">
+                Auto-tracked
+              </span>
             </div>
             
             {/* Phone Section - Optional, keep for completeness */}
