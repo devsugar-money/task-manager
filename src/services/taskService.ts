@@ -60,7 +60,7 @@ export async function fetchAllTasksWithRelationships() {
           )
         )
       `)
-      .order('last_updated', { ascending: true, nullsFirst: true });
+      .order('id', { ascending: true }); // Order by ID to maintain consistent position
 
     if (error) {
       console.error('Error fetching tasks:', error);

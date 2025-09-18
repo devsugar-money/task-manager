@@ -97,8 +97,7 @@ export default function CustomerDetail() {
           sub_categories (
             *,
             tasks (
-              *,
-              created_at
+              *
             )
           )
         `)
@@ -111,14 +110,7 @@ export default function CustomerDetail() {
       const allSubCategories: ExtendedSubCategory[] = [];
       categoriesData?.forEach(category => {
         category.sub_categories?.forEach((subCat: ExtendedSubCategory) => {
-          // Sort tasks by creation date to maintain stable order
-          if (subCat.tasks) {
-            subCat.tasks.sort((a, b) => {
-              const dateA = new Date(a.created_at || 0).getTime();
-              const dateB = new Date(b.created_at || 0).getTime();
-              return dateA - dateB; // Oldest first
-            });
-          }
+          // Don't sort tasks - keep them in their original order from the database
           allSubCategories.push({
             ...subCat,
             category_name: category.name

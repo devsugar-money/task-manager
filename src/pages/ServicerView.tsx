@@ -196,19 +196,7 @@ export default function ServicerView() {
         if (task.status === 'Complete') customer.taskCounts.complete++;
       });
 
-      // Sort tasks within each subcategory by creation date for stable ordering
-      customerMap.forEach(customer => {
-        customer.categories.forEach(category => {
-          category.subcategories.forEach(subcategory => {
-            subcategory.tasks.sort((a, b) => {
-              const dateA = new Date(a.created_at || 0).getTime();
-              const dateB = new Date(b.created_at || 0).getTime();
-              return dateA - dateB; // Oldest first, maintains stable order
-            });
-          });
-        });
-      });
-      
+      // Don't sort tasks - keep them in their original order from the database
       setCustomerData(customerMap);
     } catch (error) {
       console.error('Error fetching data:', error);
