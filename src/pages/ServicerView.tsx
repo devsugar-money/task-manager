@@ -477,7 +477,8 @@ export default function ServicerView() {
                                                     {PREDEFINED_STATUSES.map(status => (
                                                       <option key={status} value={status}>{status}</option>
                                                     ))}
-                                                    {task.custom_status && !PREDEFINED_STATUSES.includes(task.status) && (
+                                                    {/* Show current custom status if it's not in the predefined list */}
+                                                    {task.status && !PREDEFINED_STATUSES.includes(task.status) && (
                                                       <option value={task.status}>{task.status}</option>
                                                     )}
                                                   </select>
