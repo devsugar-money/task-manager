@@ -1,10 +1,19 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { ArrowLeft, Plus, ChevronDown, ChevronRight, MessageCircle, CheckCircle, User, DollarSign, FileText, Save, Flag, Trash2, Mail } from 'lucide-react';
 import { supabase, isSupabaseConfigured, Customer, SubCategory, Task, SUB_CATEGORIES, PREDEFINED_TASKS_BY_SUB_CATEGORY, PREDEFINED_STATUSES, PREDEFINED_CATEGORIES, CUSTOMER_FLAGS, SUBCATEGORY_STATUSES } from '../lib/supabase';
 import Breadcrumb from '../components/Breadcrumb';
 import SupabaseStatus from '../components/SupabaseStatus';
 import TimeSinceContact from '../components/TimeSinceContact';
+
+// Simple debounce function
+function debounce<T extends (...args: any[]) => void>(func: T, wait: number): T {
+  let timeout: NodeJS.Timeout | null = null;
+  return ((...args) => {
+    if (timeout) clearTimeout(timeout);
+    timeout = setTimeout(() => func(...args), wait);
+  }) as T;
+}
 
 interface ExtendedSubCategory extends SubCategory {
   tasks?: ExtendedTask[];
@@ -29,6 +38,7 @@ export default function CustomerDetail() {
   const [selectedCategory, setSelectedCategory] = useState<string>('');
   const [newSubCategoryName, setNewSubCategoryName] = useState('');
   const [loading, setLoading] = useState(true);
+  const [moneySavedInputs, setMoneySavedInputs] = useState<Record<string, number>>({});
   const [communications, setCommunications] = useState<Array<{
     id: string;
     created_at: string;
@@ -137,6 +147,13 @@ export default function CustomerDetail() {
       });
 
       setSubCategories(allSubCategories);
+      
+      // Initialize money saved inputs with current values
+      const initialMoneySaved: Record<string, number> = {};
+      allSubCategories.forEach(subCat => {
+        initialMoneySaved[subCat.id] = subCat.money_saved || 0;
+      });
+      setMoneySavedInputs(initialMoneySaved);
 
       // Calculate total money saved and bundled savings
       const total = allSubCategories.reduce((sum, subCat) => {
@@ -239,7 +256,13 @@ export default function CustomerDetail() {
         throw error;
       }
 
-      fetchCustomerData();
+      // Update local state instead of refetching
+      setSubCategories(prev => prev.map(sc => ({
+        ...sc,
+        tasks: sc.tasks?.map(t => 
+          t.id === taskId ? { ...t, status: newStatus, last_updated: new Date().toISOString() } : t
+        )
+      })));
     } catch (error) {
       console.error('Error updating task:', error);
     }
@@ -282,7 +305,14 @@ export default function CustomerDetail() {
         .eq('id', taskId);
 
       if (error) throw error;
-      fetchCustomerData();
+      
+      // Update local state instead of refetching
+      setSubCategories(prev => prev.map(sc => ({
+        ...sc,
+        tasks: sc.tasks?.map(t => 
+          t.id === taskId ? { ...t, completed_at: date ? new Date(date).toISOString() : null } : t
+        )
+      })));
     } catch (error) {
       console.error('Error updating completed date:', error);
     }
@@ -300,7 +330,14 @@ export default function CustomerDetail() {
         .eq('id', taskId);
 
       if (error) throw error;
-      fetchCustomerData();
+      
+      // Update local state instead of refetching
+      setSubCategories(prev => prev.map(sc => ({
+        ...sc,
+        tasks: sc.tasks?.map(t => 
+          t.id === taskId ? { ...t, last_updated: date ? new Date(date).toISOString() : new Date().toISOString() } : t
+        )
+      })));
     } catch (error) {
       console.error('Error updating last updated date:', error);
     }
@@ -372,10 +409,34 @@ export default function CustomerDetail() {
         .eq('id', subCategoryId);
 
       if (error) throw error;
-      fetchCustomerData();
+      
+      // Update local state instead of refetching everything
+      setSubCategories(prev => prev.map(sc => 
+        sc.id === subCategoryId ? { ...sc, money_saved: amount } : sc
+      ));
+      
+      // Recalculate totals locally
+      const newTotal = subCategories.reduce((sum, sc) => 
+        sum + (sc.id === subCategoryId ? amount : (sc.money_saved || 0)), 0
+      );
+      setTotalMoneySaved(newTotal);
     } catch (error) {
       console.error('Error updating money saved:', error);
     }
+  };
+  
+  // Debounced version for input changes
+  const debouncedUpdateMoneySaved = useCallback(
+    debounce((subCategoryId: string, amount: number) => {
+      updateSubCategoryMoneySaved(subCategoryId, amount);
+    }, 500),
+    []
+  );
+  
+  const handleMoneySavedChange = (subCategoryId: string, value: string) => {
+    const amount = parseFloat(value) || 0;
+    setMoneySavedInputs(prev => ({ ...prev, [subCategoryId]: amount }));
+    debouncedUpdateMoneySaved(subCategoryId, amount);
   };
 
   const updateSubCategoryStatus = async (subCategoryId: string, newStatus: string) => {
@@ -955,8 +1016,8 @@ export default function CustomerDetail() {
                             <span className="text-sm text-green-700 mr-1">$</span>
                             <input
                               type="number"
-                              value={subCategory.money_saved ?? 0}
-                              onChange={(e) => updateSubCategoryMoneySaved(subCategory.id, parseFloat(e.target.value) || 0)}
+                              value={moneySavedInputs[subCategory.id] ?? subCategory.money_saved ?? 0}
+                              onChange={(e) => handleMoneySavedChange(subCategory.id, e.target.value)}
                               className="w-24 text-sm border-green-300 rounded focus:ring-green-500 focus:border-green-500"
                               placeholder="0.00"
                               step="0.01"
