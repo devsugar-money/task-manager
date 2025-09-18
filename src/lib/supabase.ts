@@ -173,6 +173,7 @@ export const CUSTOMER_FLAGS = [
 export const COMMUNICATION_METHODS = [
   'Email',
   'WhatsApp',
+  'SMS',
   'Phone',
   'In-person',
   'Other'

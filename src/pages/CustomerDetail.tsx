@@ -490,17 +490,27 @@ export default function CustomerDetail() {
     if (!supabase || !customer) return;
 
     try {
+      const now = new Date().toISOString();
+      
       // Update customer's last contact time and method
       const { error: customerError } = await supabase
         .from('tbl_customer')
         .update({ 
-          last_contact_at: new Date().toISOString(),
-          last_contact_method: method
+          last_contact_at: now,
+          last_contact_method: method,
+          last_message_at: now  // Also update last_message_at for consistency
         })
         .eq('phone', customer.phone);
 
       if (customerError) throw customerError;
 
+      // Refresh the customer data to show the update immediately
+      fetchCustomerData();
+      
+      // Show success feedback
+      const successMessage = `${method} contact logged at ${new Date(now).toLocaleTimeString()}`;
+      console.log(successMessage);
+      
       // Also create a daily_update record for communication tracking
       if (customer.assigned_to) {
         // Find any task for this customer to record the communication
@@ -658,11 +668,26 @@ export default function CustomerDetail() {
               <div>
                 <h3 className="text-sm font-medium text-blue-900">Last Contact</h3>
                 <p className="text-sm text-blue-700">
-                  {customer.last_message_at ? new Date(customer.last_message_at).toLocaleDateString() : 'No recent communication'}
+                  {customer.last_contact_at ? (
+                    <>
+                      {new Date(customer.last_contact_at).toLocaleDateString()} at{' '}
+                      {new Date(customer.last_contact_at).toLocaleTimeString()}
+                      {customer.last_contact_method && ` via ${customer.last_contact_method}`}
+                    </>
+                  ) : (
+                    'No recent communication'
+                  )}
                 </p>
               </div>
             </div>
             <div className="flex space-x-2">
+              <button
+                onClick={() => quickLogCommunication('Email')}
+                className="px-3 py-1 text-xs font-medium text-white bg-purple-600 hover:bg-purple-700 rounded"
+                title="Log email contact"
+              >
+                Email
+              </button>
               <button
                 onClick={() => quickLogCommunication('WhatsApp')}
                 className="px-3 py-1 text-xs font-medium text-white bg-green-600 hover:bg-green-700 rounded"
@@ -671,18 +696,18 @@ export default function CustomerDetail() {
                 WhatsApp
               </button>
               <button
+                onClick={() => quickLogCommunication('SMS')}
+                className="px-3 py-1 text-xs font-medium text-white bg-yellow-600 hover:bg-yellow-700 rounded"
+                title="Log SMS contact"
+              >
+                SMS
+              </button>
+              <button
                 onClick={() => quickLogCommunication('Phone')}
                 className="px-3 py-1 text-xs font-medium text-white bg-blue-600 hover:bg-blue-700 rounded"
                 title="Log phone contact"
               >
                 Phone
-              </button>
-              <button
-                onClick={() => quickLogCommunication('Email')}
-                className="px-3 py-1 text-xs font-medium text-white bg-purple-600 hover:bg-purple-700 rounded"
-                title="Log email contact"
-              >
-                Email
               </button>
             </div>
           </div>
