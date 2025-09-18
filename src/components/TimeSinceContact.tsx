@@ -52,7 +52,14 @@ export default function TimeSinceContact({ lastContactDate, method }: TimeSinceC
   return (
     <div className="flex items-center justify-between">
       <span className="text-xs text-gray-600">{method}:</span>
-      <span className="text-xs font-medium text-gray-800">{timeAgo}</span>
+      <div className="text-right">
+        <span className="text-xs font-medium text-gray-800">{timeAgo}</span>
+        {lastContactDate && (
+          <div className="text-xs text-gray-500">
+            {new Date(lastContactDate).toLocaleDateString()} {new Date(lastContactDate).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+          </div>
+        )}
+      </div>
     </div>
   );
 }

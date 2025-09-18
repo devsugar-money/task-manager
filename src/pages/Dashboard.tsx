@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { AlertCircle, CheckCircle, Clock, Users, User } from 'lucide-react';
+import { AlertCircle, CheckCircle, Clock, Users, User, DollarSign } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
 import taskService from '../services/taskService';
@@ -24,6 +24,15 @@ interface RecentUpdate {
   updated_at: string;
 }
 
+interface ServicerAnalytics {
+  servicerId: string;
+  servicerName: string;
+  totalSavings: number;
+  totalCustomers: number;
+  completedTasks: number;
+  activeTasks: number;
+}
+
 export default function Dashboard() {
   const [stats, setStats] = useState<DashboardStats>({
     totalTasks: mockStats.totalTasks,
@@ -36,6 +45,7 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(true);
   const [selectedServicer, setSelectedServicer] = useState<string>('');
   const [servicers, setServicers] = useState<Array<{id: string, name: string}>>([]);
+  const [servicerAnalytics, setServicerAnalytics] = useState<ServicerAnalytics[]>([]);
 
   useEffect(() => {
     if (isSupabaseConfigured && supabase) {
@@ -76,6 +86,57 @@ export default function Dashboard() {
       // Get urgent tasks (stale for 2+ days)
       const urgentTasksData = await taskService.fetchStaleTasks(2, selectedServicer);
       setUrgentTasks(urgentTasksData.slice(0, 10));
+      
+      // Calculate servicer analytics
+      if (!selectedServicer && supabase) {
+        const analytics: ServicerAnalytics[] = [];
+        
+        for (const servicer of servicers) {
+          // Get all customers assigned to this servicer
+          const { data: customers } = await supabase
+            .from('tbl_customer')
+            .select('phone')
+            .eq('assigned_to', servicer.id);
+          
+          const customerPhones = customers?.map(c => c.phone) || [];
+          
+          // Get savings from subcategories for these customers
+          const { data: subcategories } = await supabase
+            .from('sub_categories')
+            .select(`
+              money_saved,
+              category:categories!inner(customer_phone)
+            `)
+            .in('category.customer_phone', customerPhones);
+          
+          const totalSavings = subcategories?.reduce((sum, sub) => sum + (sub.money_saved || 0), 0) || 0;
+          
+          // Get task counts
+          const { data: tasks } = await supabase
+            .from('tasks')
+            .select(`
+              status,
+              sub_category:sub_categories!inner(
+                category:categories!inner(customer_phone)
+              )
+            `)
+            .in('sub_category.category.customer_phone', customerPhones);
+          
+          const completedTasks = tasks?.filter(t => t.status === 'Complete').length || 0;
+          const activeTasks = tasks?.filter(t => t.status !== 'Complete' && t.status !== 'N/A').length || 0;
+          
+          analytics.push({
+            servicerId: servicer.id,
+            servicerName: servicer.name,
+            totalSavings,
+            totalCustomers: customerPhones.length,
+            completedTasks,
+            activeTasks
+          });
+        }
+        
+        setServicerAnalytics(analytics);
+      }
 
       // Get recent updates
       const recentUpdatesData = await taskService.getRecentUpdates(10, selectedServicer);
@@ -203,6 +264,48 @@ export default function Dashboard() {
           </div>
         </div>
       </div>
+
+      {/* Servicer Analytics */}
+      {isSupabaseConfigured && servicerAnalytics.length > 0 && (
+        <div className="bg-white shadow-sm rounded-lg border">
+          <div className="px-4 py-5 sm:p-6">
+            <h3 className="text-lg leading-6 font-medium text-gray-900 mb-4 flex items-center">
+              <DollarSign className="h-5 w-5 text-green-600 mr-2" />
+              Servicer Performance
+            </h3>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {servicerAnalytics.map((servicer) => (
+                <div key={servicer.servicerId} className="bg-gray-50 rounded-lg p-4 border">
+                  <div className="flex items-center justify-between mb-3">
+                    <h4 className="font-medium text-gray-900">{servicer.servicerName}</h4>
+                    <User className="h-4 w-4 text-gray-400" />
+                  </div>
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm text-gray-600">Total Savings:</span>
+                      <span className="text-sm font-bold text-green-600">
+                        ${servicer.totalSavings.toFixed(2)}
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm text-gray-600">Customers:</span>
+                      <span className="text-sm font-medium text-gray-900">{servicer.totalCustomers}</span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm text-gray-600">Completed:</span>
+                      <span className="text-sm font-medium text-green-600">{servicer.completedTasks}</span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm text-gray-600">Active:</span>
+                      <span className="text-sm font-medium text-blue-600">{servicer.activeTasks}</span>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Two Column Layout */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
