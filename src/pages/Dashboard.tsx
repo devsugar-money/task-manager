@@ -44,7 +44,10 @@ export default function Dashboard() {
   const [recentUpdates, setRecentUpdates] = useState<RecentUpdate[]>(mockRecentUpdates);
   const [urgentTasks, setUrgentTasks] = useState<Task[]>(mockUrgentTasks);
   const [loading, setLoading] = useState(true);
-  const [selectedServicer, setSelectedServicer] = useState<string>('');
+  const [selectedServicer, setSelectedServicer] = useState<string>(() => {
+    // Load selected servicer from localStorage on initial mount
+    return localStorage.getItem('selectedServicer') || '';
+  });
   const [servicers, setServicers] = useState<Array<{id: string, name: string}>>([]);
   const [servicerAnalytics, setServicerAnalytics] = useState<ServicerAnalytics[]>([]);
 
@@ -219,7 +222,16 @@ export default function Dashboard() {
             <User className="h-5 w-5 text-gray-400" />
             <select
               value={selectedServicer}
-              onChange={(e) => setSelectedServicer(e.target.value)}
+              onChange={(e) => {
+                const value = e.target.value;
+                setSelectedServicer(value);
+                // Save to localStorage
+                if (value) {
+                  localStorage.setItem('selectedServicer', value);
+                } else {
+                  localStorage.removeItem('selectedServicer');
+                }
+              }}
               className="block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
             >
               <option value="">All Servicers</option>

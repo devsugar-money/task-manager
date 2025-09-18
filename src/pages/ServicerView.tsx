@@ -54,7 +54,10 @@ interface CustomerGrouped {
 
 export default function ServicerView() {
   const [servicers, setServicers] = useState<TeamMember[]>([]);
-  const [selectedServicer, setSelectedServicer] = useState<string>('');
+  const [selectedServicer, setSelectedServicer] = useState<string>(() => {
+    // Load selected servicer from localStorage on initial mount
+    return localStorage.getItem('selectedServicer') || '';
+  });
   const [customerData, setCustomerData] = useState<Map<string, CustomerGrouped>>(new Map());
   const [expandedCustomers, setExpandedCustomers] = useState<Set<string>>(new Set());
   const [expandedCategories, setExpandedCategories] = useState<Set<string>>(new Set());
@@ -316,7 +319,16 @@ export default function ServicerView() {
             </div>
             <select
               value={selectedServicer}
-              onChange={(e) => setSelectedServicer(e.target.value)}
+              onChange={(e) => {
+                const value = e.target.value;
+                setSelectedServicer(value);
+                // Save to localStorage
+                if (value) {
+                  localStorage.setItem('selectedServicer', value);
+                } else {
+                  localStorage.removeItem('selectedServicer');
+                }
+              }}
               className="block w-full pl-10 pr-3 py-2 border border-gray-300 rounded-md leading-5 bg-white focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500 text-sm"
             >
               <option value="">All Servicers</option>
