@@ -145,6 +145,7 @@ export const PREDEFINED_CATEGORIES = [
 export const PREDEFINED_STATUSES = [
   'Not Started',
   'In Progress',
+  'Call Arranged',
   'Sent Info',
   'Waiting on Info',
   'Waiting on Partner',
