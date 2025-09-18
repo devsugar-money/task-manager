@@ -190,7 +190,7 @@ export default function CustomerDetail() {
       // Add notes/comment if provided
       if (comment) {
         updateData.notes = comment;
-        updateData.status_change_comment = comment;  // For the trigger to use
+        // Removed status_change_comment - not in current database schema
       }
 
       const { data, error } = await supabase
