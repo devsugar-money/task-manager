@@ -88,7 +88,7 @@ export default function Dashboard() {
       setUrgentTasks(urgentTasksData.slice(0, 10));
       
       // Calculate servicer analytics
-      if (!selectedServicer && supabase) {
+      if (!selectedServicer && supabase && servicers.length > 0) {
         const analytics: ServicerAnalytics[] = [];
         
         for (const servicer of servicers) {
@@ -100,40 +100,68 @@ export default function Dashboard() {
           
           const customerPhones = customers?.map(c => c.phone) || [];
           
-          // Get savings from subcategories for these customers
-          const { data: subcategories } = await supabase
-            .from('sub_categories')
-            .select(`
-              money_saved,
-              category:categories!inner(customer_phone)
-            `)
-            .in('category.customer_phone', customerPhones);
-          
-          const totalSavings = subcategories?.reduce((sum, sub) => sum + (sub.money_saved || 0), 0) || 0;
-          
-          // Get task counts
-          const { data: tasks } = await supabase
-            .from('tasks')
-            .select(`
-              status,
-              sub_category:sub_categories!inner(
-                category:categories!inner(customer_phone)
-              )
-            `)
-            .in('sub_category.category.customer_phone', customerPhones);
-          
-          const completedTasks = tasks?.filter(t => t.status === 'Complete').length || 0;
-          const activeTasks = tasks?.filter(t => t.status !== 'Complete' && t.status !== 'N/A').length || 0;
-          
-          analytics.push({
-            servicerId: servicer.id,
-            servicerName: servicer.name,
-            totalSavings,
-            totalCustomers: customerPhones.length,
-            completedTasks,
-            activeTasks
-          });
+          if (customerPhones.length > 0) {
+            // Get categories for these customers to access subcategories
+            const { data: categories } = await supabase
+              .from('categories')
+              .select(`
+                id,
+                customer_phone,
+                sub_categories (
+                  money_saved
+                )
+              `)
+              .in('customer_phone', customerPhones);
+            
+            // Calculate total savings
+            let totalSavings = 0;
+            categories?.forEach(category => {
+              category.sub_categories?.forEach((subCat: any) => {
+                totalSavings += subCat.money_saved || 0;
+              });
+            });
+            
+            // Get task counts - simplified query
+            const { data: allTasks } = await supabase
+              .from('tasks')
+              .select(`
+                id,
+                status,
+                sub_category:sub_categories!inner(
+                  id,
+                  category:categories!inner(
+                    customer_phone
+                  )
+                )
+              `)
+              .in('sub_category.category.customer_phone', customerPhones);
+            
+            const completedTasks = allTasks?.filter(t => t.status === 'Complete').length || 0;
+            const activeTasks = allTasks?.filter(t => t.status !== 'Complete' && t.status !== 'N/A').length || 0;
+            
+            analytics.push({
+              servicerId: servicer.id,
+              servicerName: servicer.name,
+              totalSavings,
+              totalCustomers: customerPhones.length,
+              completedTasks,
+              activeTasks
+            });
+          } else {
+            // No customers for this servicer
+            analytics.push({
+              servicerId: servicer.id,
+              servicerName: servicer.name,
+              totalSavings: 0,
+              totalCustomers: 0,
+              completedTasks: 0,
+              activeTasks: 0
+            });
+          }
         }
+        
+        // Sort by total savings descending
+        analytics.sort((a, b) => b.totalSavings - a.totalSavings);
         
         setServicerAnalytics(analytics);
       }
@@ -269,22 +297,41 @@ export default function Dashboard() {
       {isSupabaseConfigured && servicerAnalytics.length > 0 && (
         <div className="bg-white shadow-sm rounded-lg border">
           <div className="px-4 py-5 sm:p-6">
-            <h3 className="text-lg leading-6 font-medium text-gray-900 mb-4 flex items-center">
-              <DollarSign className="h-5 w-5 text-green-600 mr-2" />
-              Servicer Performance
-            </h3>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {servicerAnalytics.map((servicer) => (
-                <div key={servicer.servicerId} className="bg-gray-50 rounded-lg p-4 border">
+            <div className="flex items-center justify-between mb-6">
+              <h3 className="text-lg leading-6 font-medium text-gray-900 flex items-center">
+                <DollarSign className="h-5 w-5 text-green-600 mr-2" />
+                Servicer Performance Analytics
+              </h3>
+              <div className="text-sm text-gray-600">
+                Total Savings: <span className="font-bold text-green-600 text-lg">
+                  ${servicerAnalytics.reduce((sum, s) => sum + s.totalSavings, 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </span>
+              </div>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+              {servicerAnalytics.map((servicer, index) => (
+                <div 
+                  key={servicer.servicerId} 
+                  className={`rounded-lg p-4 border transition-all hover:shadow-md ${
+                    index === 0 && servicer.totalSavings > 0 ? 'bg-gradient-to-br from-green-50 to-emerald-50 border-green-300' : 'bg-gray-50'
+                  }`}
+                >
                   <div className="flex items-center justify-between mb-3">
-                    <h4 className="font-medium text-gray-900">{servicer.servicerName}</h4>
+                    <div className="flex items-center">
+                      <h4 className="font-medium text-gray-900">{servicer.servicerName}</h4>
+                      {index === 0 && servicer.totalSavings > 0 && (
+                        <span className="ml-2 px-2 py-0.5 text-xs font-medium text-green-800 bg-green-100 rounded">
+                          Top
+                        </span>
+                      )}
+                    </div>
                     <User className="h-4 w-4 text-gray-400" />
                   </div>
                   <div className="space-y-2">
                     <div className="flex items-center justify-between">
                       <span className="text-sm text-gray-600">Total Savings:</span>
-                      <span className="text-sm font-bold text-green-600">
-                        ${servicer.totalSavings.toFixed(2)}
+                      <span className={`text-sm font-bold ${servicer.totalSavings > 0 ? 'text-green-600' : 'text-gray-400'}`}>
+                        ${servicer.totalSavings.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                       </span>
                     </div>
                     <div className="flex items-center justify-between">
@@ -292,13 +339,23 @@ export default function Dashboard() {
                       <span className="text-sm font-medium text-gray-900">{servicer.totalCustomers}</span>
                     </div>
                     <div className="flex items-center justify-between">
-                      <span className="text-sm text-gray-600">Completed:</span>
-                      <span className="text-sm font-medium text-green-600">{servicer.completedTasks}</span>
+                      <span className="text-sm text-gray-600">Tasks:</span>
+                      <div className="flex items-center space-x-2">
+                        <span className="text-sm font-medium text-green-600" title="Completed">{servicer.completedTasks}</span>
+                        <span className="text-xs text-gray-400">/</span>
+                        <span className="text-sm font-medium text-blue-600" title="Active">{servicer.activeTasks}</span>
+                      </div>
                     </div>
-                    <div className="flex items-center justify-between">
-                      <span className="text-sm text-gray-600">Active:</span>
-                      <span className="text-sm font-medium text-blue-600">{servicer.activeTasks}</span>
-                    </div>
+                    {servicer.totalCustomers > 0 && (
+                      <div className="pt-2 mt-2 border-t border-gray-200">
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs text-gray-600">Avg/Customer:</span>
+                          <span className="text-xs font-medium text-gray-700">
+                            ${(servicer.totalSavings / servicer.totalCustomers).toFixed(2)}
+                          </span>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 </div>
               ))}
