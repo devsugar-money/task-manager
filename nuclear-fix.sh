@@ -1,3 +1,36 @@
+#!/bin/bash
+
+echo "🔥 NUCLEAR SUPABASE FIX - FINAL SOLUTION"
+echo "=========================================="
+echo ""
+
+# Step 1: Kill everything
+echo "1️⃣ Killing all node processes..."
+pkill -f node || true
+pkill -f vite || true
+sleep 2
+
+# Step 2: Clean EVERYTHING
+echo "2️⃣ Removing ALL cache directories..."
+rm -rf node_modules/.vite
+rm -rf .vite
+rm -rf dist
+rm -rf build
+rm -rf .parcel-cache
+rm -rf node_modules/.cache
+rm -rf .next
+rm -rf .cache
+
+# Step 3: Create new .env file with correct values
+echo "3️⃣ Creating fresh .env file..."
+cat > .env << 'EOF'
+VITE_SUPABASE_URL=https://vjfyuqdypacsffuulbdv.supabase.co
+VITE_SUPABASE_ANON_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZqZnl1cWR5cGFjc2ZmdXVsYmR2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDkwNDg5NDcsImV4cCI6MjA2NDYyNDk0N30.25H6QRkdmLzuYYt2F0NaLznKfzt2vcDjZ2LXFtINfR8
+EOF
+
+# Step 4: Create a completely new supabase.ts file with HARDCODED values
+echo "4️⃣ Creating brand new supabase.ts with HARDCODED values..."
+cat > src/lib/supabase.ts << 'EOF'
 import { createClient } from '@supabase/supabase-js';
 
 // TEMPORARILY HARDCODED to bypass ALL caching issues
@@ -215,3 +248,52 @@ export const PREDEFINED_TASKS_BY_SUB_CATEGORY: Record<string, string[]> = {
   'Mobile': ['Get recent bill', 'Compare plans', 'Check coverage maps', 'Suggest optimisation', 'Guide through switch'],
   'Gas': ['Get recent bills', 'Check current rates', 'Compare providers', 'Check bundle options', 'Suggest optimisation', 'Guide through switch']
 };
+EOF
+
+# Step 5: Update vite config to force reload
+echo "5️⃣ Updating vite.config.ts to use different port..."
+cat > vite.config.ts << 'EOF'
+import { defineConfig } from 'vite';
+import react from '@vitejs/plugin-react';
+
+export default defineConfig({
+  plugins: [react()],
+  optimizeDeps: {
+    force: true,
+    exclude: []
+  },
+  server: {
+    port: 4444,
+    host: true,
+    hmr: {
+      overlay: false
+    },
+    watch: {
+      usePolling: true,
+      interval: 100
+    }
+  },
+  cacheDir: '.vite-new',
+  build: {
+    rollupOptions: {
+      cache: false
+    }
+  }
+});
+EOF
+
+echo ""
+echo "✅ COMPLETE! Now do this:"
+echo ""
+echo "1. CLOSE ALL BROWSER WINDOWS completely"
+echo ""
+echo "2. Run the dev server on NEW PORT:"
+echo "   npm run dev"
+echo ""
+echo "3. Open a NEW INCOGNITO window and go to:"
+echo "   http://localhost:4444"
+echo ""
+echo "4. Check the console for the green 'NEW SUPABASE CONNECTION' message"
+echo ""
+echo "The Supabase connection is now HARDCODED to bypass all caching."
+echo "Once it works, you can switch back to using environment variables."
