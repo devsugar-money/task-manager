@@ -1012,7 +1012,7 @@ export default function CustomerDetail() {
                                     </span>
                                   </div>
                                   <div className="flex items-center space-x-2">
-                                    {/* Show appropriate date based on status */}
+                                    {/* Always show date for any status except Not Started */}
                                     {task.status !== 'Not Started' && (
                                       <>
                                         {task.started_at && task.status !== 'Complete' && (
@@ -1033,6 +1033,7 @@ export default function CustomerDetail() {
                                             if (task.status === 'Complete') {
                                               updateTaskCompletedDate(task.id, e.target.value);
                                             } else {
+                                              // For any other status (including Waiting On Partner), update last_updated
                                               updateTaskLastUpdated(task.id, e.target.value);
                                             }
                                           }}

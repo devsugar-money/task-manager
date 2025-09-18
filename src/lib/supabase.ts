@@ -158,6 +158,7 @@ export const PREDEFINED_STATUSES = [
 export const SUBCATEGORY_STATUSES = [
   'Not Started',
   'In Progress',
+  'Waiting On Partner',
   'Can\'t Optimise',
   'Optimised'
 ];
