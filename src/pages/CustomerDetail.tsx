@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { ArrowLeft, Plus, ChevronDown, ChevronRight, MessageCircle, CheckCircle, User, DollarSign, FileText, Save, Flag, Trash2 } from 'lucide-react';
+import { ArrowLeft, Plus, ChevronDown, ChevronRight, MessageCircle, CheckCircle, User, DollarSign, FileText, Save, Flag, Trash2, Mail } from 'lucide-react';
 import { supabase, isSupabaseConfigured, Customer, SubCategory, Task, SUB_CATEGORIES, PREDEFINED_TASKS_BY_SUB_CATEGORY, PREDEFINED_STATUSES, PREDEFINED_CATEGORIES, CUSTOMER_FLAGS, SUBCATEGORY_STATUSES } from '../lib/supabase';
 import Breadcrumb from '../components/Breadcrumb';
 import SupabaseStatus from '../components/SupabaseStatus';
+import TimeSinceContact from '../components/TimeSinceContact';
 
 interface ExtendedSubCategory extends SubCategory {
   tasks?: ExtendedTask[];
@@ -19,6 +20,8 @@ interface ExtendedTask extends Task {
 export default function CustomerDetail() {
   const { customerId: customerPhone } = useParams<{ customerId: string }>();
   const [customer, setCustomer] = useState<Customer | null>(null);
+  const [lastEmailContact, setLastEmailContact] = useState<string | null>(null);
+  const [lastWhatsAppContact, setLastWhatsAppContact] = useState<string | null>(null);
   const [subCategories, setSubCategories] = useState<ExtendedSubCategory[]>([]);
   const [expandedSubCategories, setExpandedSubCategories] = useState<Set<string>>(new Set());
   const [showAddSubCategory, setShowAddSubCategory] = useState(false);
@@ -80,6 +83,10 @@ export default function CustomerDetail() {
       setCustomerNotes(customerData.notes || '');
       setCustomerDescription(customerData.description || '');
       setCustomerFlags(customerData.flags || []);
+      
+      // Set last contact times for Email and WhatsApp
+      setLastEmailContact(customerData.last_email_contact || null);
+      setLastWhatsAppContact(customerData.last_whatsapp_contact || null);
 
       // Fetch all categories and subcategories with tasks
       const { data: categoriesData, error: categoriesError } = await supabase
@@ -501,14 +508,26 @@ export default function CustomerDetail() {
     try {
       const now = new Date().toISOString();
       
+      // Build update object based on method
+      const updateData: any = {
+        last_contact_at: now,
+        last_contact_method: method,
+        last_message_at: now
+      };
+      
+      // Add specific field for Email or WhatsApp
+      if (method === 'Email') {
+        updateData.last_email_contact = now;
+        setLastEmailContact(now);
+      } else if (method === 'WhatsApp') {
+        updateData.last_whatsapp_contact = now;
+        setLastWhatsAppContact(now);
+      }
+      
       // Update customer's last contact time and method
       const { error: customerError } = await supabase
         .from('tbl_customer')
-        .update({ 
-          last_contact_at: now,
-          last_contact_method: method,
-          last_message_at: now  // Also update last_message_at for consistency
-        })
+        .update(updateData)
         .eq('phone', customer.phone);
 
       if (customerError) throw customerError;
@@ -671,49 +690,57 @@ export default function CustomerDetail() {
 
         {/* Communication Summary */}
         <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center">
-              <MessageCircle className="h-5 w-5 text-blue-600 mr-2" />
-              <div>
-                <h3 className="text-sm font-medium text-blue-900">Last Contact</h3>
-                <p className="text-sm text-blue-700">
-                  {customer.last_contact_at ? (
-                    <>
-                      {new Date(customer.last_contact_at).toLocaleDateString()} at{' '}
-                      {new Date(customer.last_contact_at).toLocaleTimeString()}
-                      {customer.last_contact_method && ` via ${customer.last_contact_method}`}
-                    </>
-                  ) : (
-                    'No recent communication'
-                  )}
-                </p>
+          <div className="flex flex-col space-y-3">
+            <h3 className="text-sm font-medium text-blue-900 flex items-center">
+              <MessageCircle className="h-4 w-4 text-blue-600 mr-2" />
+              Last Contact
+            </h3>
+            
+            {/* Email Section */}
+            <div className="flex items-center justify-between">
+              <div className="flex-1">
+                <TimeSinceContact 
+                  lastContactDate={lastEmailContact} 
+                  method="Email" 
+                />
               </div>
-            </div>
-            <div className="flex space-x-2">
               <button
                 onClick={() => quickLogCommunication('Email')}
-                className="px-3 py-1 text-xs font-medium text-white bg-purple-600 hover:bg-purple-700 rounded"
+                className="ml-3 px-3 py-1 text-xs font-medium text-white bg-purple-600 hover:bg-purple-700 rounded"
                 title="Log email contact"
               >
                 Email
               </button>
+            </div>
+            
+            {/* WhatsApp Section */}
+            <div className="flex items-center justify-between">
+              <div className="flex-1">
+                <TimeSinceContact 
+                  lastContactDate={lastWhatsAppContact} 
+                  method="WhatsApp" 
+                />
+              </div>
               <button
                 onClick={() => quickLogCommunication('WhatsApp')}
-                className="px-3 py-1 text-xs font-medium text-white bg-green-600 hover:bg-green-700 rounded"
+                className="ml-3 px-3 py-1 text-xs font-medium text-white bg-green-600 hover:bg-green-700 rounded"
                 title="Log WhatsApp contact"
               >
                 WhatsApp
               </button>
-              <button
-                onClick={() => quickLogCommunication('SMS')}
-                className="px-3 py-1 text-xs font-medium text-white bg-yellow-600 hover:bg-yellow-700 rounded"
-                title="Log SMS contact"
-              >
-                SMS
-              </button>
+            </div>
+            
+            {/* Phone Section - Optional, keep for completeness */}
+            <div className="flex items-center justify-between">
+              <div className="flex-1">
+                <TimeSinceContact 
+                  lastContactDate={customer?.last_contact_method === 'Phone' ? customer.last_contact_at : null} 
+                  method="Phone" 
+                />
+              </div>
               <button
                 onClick={() => quickLogCommunication('Phone')}
-                className="px-3 py-1 text-xs font-medium text-white bg-blue-600 hover:bg-blue-700 rounded"
+                className="ml-3 px-3 py-1 text-xs font-medium text-white bg-blue-600 hover:bg-blue-700 rounded"
                 title="Log phone contact"
               >
                 Phone
