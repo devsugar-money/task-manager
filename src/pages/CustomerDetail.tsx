@@ -930,11 +930,12 @@ export default function CustomerDetail() {
                             <span className="text-sm text-green-700 mr-1">$</span>
                             <input
                               type="number"
-                              value={subCategory.money_saved || ''}
+                              value={subCategory.money_saved ?? 0}
                               onChange={(e) => updateSubCategoryMoneySaved(subCategory.id, parseFloat(e.target.value) || 0)}
                               className="w-24 text-sm border-green-300 rounded focus:ring-green-500 focus:border-green-500"
                               placeholder="0.00"
                               step="0.01"
+                              min="0"
                               onClick={(e) => e.stopPropagation()}
                             />
                           </div>
