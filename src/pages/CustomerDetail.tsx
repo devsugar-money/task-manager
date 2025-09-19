@@ -32,6 +32,7 @@ export default function CustomerDetail() {
   const [customer, setCustomer] = useState<Customer | null>(null);
   const [lastEmailContact, setLastEmailContact] = useState<string | null>(null);
   const [lastWhatsAppContact, setLastWhatsAppContact] = useState<string | null>(null);
+  const [lastPhoneContact, setLastPhoneContact] = useState<string | null>(null);
   const [subCategories, setSubCategories] = useState<ExtendedSubCategory[]>([]);
   const [expandedSubCategories, setExpandedSubCategories] = useState<Set<string>>(new Set());
   const [showAddSubCategory, setShowAddSubCategory] = useState(false);
@@ -98,7 +99,19 @@ export default function CustomerDetail() {
       setCustomerFlags(customerData.flags || []);
       
       // Set last contact times - use last_message_at for WhatsApp
-      setLastEmailContact(customerData.last_email_contact || null);
+      // For Email and Phone, check if last contact method matches
+      if (customerData.last_contact_method === 'Email') {
+        setLastEmailContact(customerData.last_contact_at || null);
+      } else {
+        setLastEmailContact(null);
+      }
+      
+      if (customerData.last_contact_method === 'Phone') {
+        setLastPhoneContact(customerData.last_contact_at || null);
+      } else {
+        setLastPhoneContact(null);
+      }
+      
       setLastWhatsAppContact(customerData.last_message_at || null);
 
       // Fetch all categories and subcategories with tasks
@@ -270,12 +283,12 @@ export default function CustomerDetail() {
         throw error;
       }
 
-      // Update local state instead of refetching
+      // Update local state instead of refetching - preserve task order
       setSubCategories(prev => prev.map(sc => ({
         ...sc,
         tasks: sc.tasks?.map(t => 
           t.id === taskId ? { ...t, status: newStatus, last_updated: new Date().toISOString() } : t
-        )
+        ) // Don't re-sort, maintain existing order
       })));
     } catch (error) {
       console.error('Error updating task:', error);
@@ -320,12 +333,12 @@ export default function CustomerDetail() {
 
       if (error) throw error;
       
-      // Update local state instead of refetching
+      // Update local state instead of refetching - preserve task order
       setSubCategories(prev => prev.map(sc => ({
         ...sc,
         tasks: sc.tasks?.map(t => 
           t.id === taskId ? { ...t, completed_at: date ? new Date(date).toISOString() : null } : t
-        )
+        ) // Don't re-sort, maintain existing order
       })));
     } catch (error) {
       console.error('Error updating completed date:', error);
@@ -345,12 +358,12 @@ export default function CustomerDetail() {
 
       if (error) throw error;
       
-      // Update local state instead of refetching
+      // Update local state instead of refetching - preserve task order
       setSubCategories(prev => prev.map(sc => ({
         ...sc,
         tasks: sc.tasks?.map(t => 
           t.id === taskId ? { ...t, last_updated: date ? new Date(date).toISOString() : new Date().toISOString() } : t
-        )
+        ) // Don't re-sort, maintain existing order
       })));
     } catch (error) {
       console.error('Error updating last updated date:', error);
@@ -491,7 +504,11 @@ export default function CustomerDetail() {
         .eq('id', subCategoryId);
 
       if (error) throw error;
-      fetchCustomerData();
+      
+      // Update local state instead of refetching - preserve task order
+      setSubCategories(prev => prev.map(sc => 
+        sc.id === subCategoryId ? { ...sc, overall_status: newStatus, last_update: new Date().toISOString() } : sc
+      ));
     } catch (error) {
       console.error('Error updating subcategory status:', error);
     }
@@ -620,17 +637,11 @@ export default function CustomerDetail() {
     try {
       const now = new Date().toISOString();
       
-      // Build update object based on method
+      // Build update object - only use fields that exist in tbl_customer
       const updateData: any = {
         last_contact_at: now,
         last_contact_method: method
       };
-      
-      // Only update Email - WhatsApp is tracked via last_message_at automatically
-      if (method === 'Email') {
-        updateData.last_email_contact = now;
-        setLastEmailContact(now);
-      }
       
       // Update customer's last contact time and method
       const { error: customerError } = await supabase
@@ -639,9 +650,22 @@ export default function CustomerDetail() {
         .eq('phone', customer.phone);
 
       if (customerError) throw customerError;
-
-      // Refresh the customer data to show the update immediately
-      fetchCustomerData();
+      
+      // Update local state for tracking - do this AFTER the database update succeeds
+      if (method === 'Email') {
+        setLastEmailContact(now);
+        setLastPhoneContact(null); // Clear phone since Email is now the last contact
+      } else if (method === 'Phone') {
+        setLastPhoneContact(now);
+        setLastEmailContact(null); // Clear email since Phone is now the last contact
+      }
+      
+      // Update customer object in state
+      setCustomer(prev => prev ? {
+        ...prev,
+        last_contact_at: now,
+        last_contact_method: method
+      } : prev);
       
       // Show success feedback
       const successMessage = `${method} contact logged at ${new Date(now).toLocaleTimeString()}`;
@@ -671,7 +695,7 @@ export default function CustomerDetail() {
         }
       }
       
-      fetchCustomerData();
+      // Don't fetch customer data - we've already updated the local state
     } catch (error) {
       console.error('Error logging communication:', error);
     }
@@ -849,7 +873,7 @@ export default function CustomerDetail() {
             <div className="flex items-center justify-between">
               <div className="flex-1">
                 <TimeSinceContact 
-                  lastContactDate={customer?.last_contact_method === 'Phone' ? customer.last_contact_at : null} 
+                  lastContactDate={lastPhoneContact} 
                   method="Phone" 
                 />
               </div>
