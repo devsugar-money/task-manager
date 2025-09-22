@@ -85,34 +85,56 @@ export default function CustomerDetail() {
     if (!supabase) return;
     
     try {
-      // Fetch customer from view to get last_message_at for WhatsApp
-      const { data: customerData, error: customerError } = await supabase
-        .from('v_customer_with_assignment')
-        .select('*')
-        .eq('phone', customerPhone)
-        .single();
+      // Fetch both customer data in parallel for better performance
+      const [viewResult, customerResult] = await Promise.all([
+        supabase
+          .from('v_customer_with_assignment')
+          .select('*')
+          .eq('phone', customerPhone)
+          .single(),
+        supabase
+          .from('tbl_customer')
+          .select('*')
+          .eq('phone', customerPhone)
+          .single()
+      ]);
 
-      if (customerError) throw customerError;
-      setCustomer(customerData);
-      setCustomerNotes(customerData.notes || '');
-      setCustomerDescription(customerData.description || '');
-      setCustomerFlags(customerData.flags || []);
+      if (viewResult.error) throw viewResult.error;
+      if (customerResult.error) throw customerResult.error;
+      
+      const viewData = viewResult.data;
+      const customerData = customerResult.data;
+      
+      console.log('Customer data from tbl_customer:', customerData);
+      console.log('View data:', viewData);
+      
+      // Merge the data - use view data for display but tbl_customer for contact tracking
+      const mergedCustomerData = {
+        ...viewData,
+        ...customerData,
+        assigned_servicer_name: viewData.assigned_servicer_name // Keep the servicer name from view
+      };
+      
+      setCustomer(mergedCustomerData);
+      setCustomerNotes(mergedCustomerData.notes || '');
+      setCustomerDescription(mergedCustomerData.description || '');
+      setCustomerFlags(mergedCustomerData.flags || []);
       
       // Set last contact times - use last_message_at for WhatsApp
       // For Email and Phone, check if last contact method matches
-      if (customerData.last_contact_method === 'Email') {
-        setLastEmailContact(customerData.last_contact_at || null);
+      if (mergedCustomerData.last_contact_method === 'Email') {
+        setLastEmailContact(mergedCustomerData.last_contact_at || null);
       } else {
         setLastEmailContact(null);
       }
       
-      if (customerData.last_contact_method === 'Phone') {
-        setLastPhoneContact(customerData.last_contact_at || null);
+      if (mergedCustomerData.last_contact_method === 'Phone') {
+        setLastPhoneContact(mergedCustomerData.last_contact_at || null);
       } else {
         setLastPhoneContact(null);
       }
       
-      setLastWhatsAppContact(customerData.last_message_at || null);
+      setLastWhatsAppContact(mergedCustomerData.last_message_at || null);
 
       // Fetch all categories and subcategories with tasks
       const { data: categoriesData, error: categoriesError } = await supabase
@@ -427,15 +449,22 @@ export default function CustomerDetail() {
     if (!supabase) return;
 
     try {
-      const { error } = await supabase
+      const { data, error } = await supabase
         .from('sub_categories')
         .update({ 
           money_saved: amount,
           last_update: new Date().toISOString()
         })
-        .eq('id', subCategoryId);
+        .eq('id', subCategoryId)
+        .select();
 
-      if (error) throw error;
+      if (error) {
+        console.error('Error updating money saved:', error);
+        alert(`Failed to save: ${error.message}`);
+        throw error;
+      }
+      
+      console.log('Money saved updated successfully:', data);
       
       // Update local state instead of refetching everything
       setSubCategories(prev => prev.map(sc => 
@@ -644,12 +673,19 @@ export default function CustomerDetail() {
       };
       
       // Update customer's last contact time and method
-      const { error: customerError } = await supabase
+      const { data: updateResult, error: customerError } = await supabase
         .from('tbl_customer')
         .update(updateData)
-        .eq('phone', customer.phone);
+        .eq('phone', customer.phone)
+        .select();
 
-      if (customerError) throw customerError;
+      if (customerError) {
+        console.error('Error updating contact:', customerError);
+        alert(`Failed to log contact: ${customerError.message}`);
+        throw customerError;
+      }
+      
+      console.log('Contact logged successfully:', updateResult);
       
       // Update local state for tracking - do this AFTER the database update succeeds
       if (method === 'Email') {
