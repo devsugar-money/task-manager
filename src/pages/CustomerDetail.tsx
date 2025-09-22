@@ -1,6 +1,6 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { ArrowLeft, Plus, ChevronDown, ChevronRight, MessageCircle, CheckCircle, User, DollarSign, FileText, Save, Flag, Trash2, Mail } from 'lucide-react';
+import { ArrowLeft, Plus, ChevronDown, ChevronRight, MessageCircle, CheckCircle, User, DollarSign, FileText, Save, Flag, Trash2, Mail, Link2, Unlink } from 'lucide-react';
 import { supabase, isSupabaseConfigured, Customer, SubCategory, Task, SUB_CATEGORIES, PREDEFINED_TASKS_BY_SUB_CATEGORY, PREDEFINED_STATUSES, PREDEFINED_CATEGORIES, CUSTOMER_FLAGS, SUBCATEGORY_STATUSES } from '../lib/supabase';
 import Breadcrumb from '../components/Breadcrumb';
 import SupabaseStatus from '../components/SupabaseStatus';
@@ -32,7 +32,6 @@ export default function CustomerDetail() {
   const [customer, setCustomer] = useState<Customer | null>(null);
   const [lastEmailContact, setLastEmailContact] = useState<string | null>(null);
   const [lastWhatsAppContact, setLastWhatsAppContact] = useState<string | null>(null);
-  const [lastPhoneContact, setLastPhoneContact] = useState<string | null>(null);
   const [subCategories, setSubCategories] = useState<ExtendedSubCategory[]>([]);
   const [expandedSubCategories, setExpandedSubCategories] = useState<Set<string>>(new Set());
   const [showAddSubCategory, setShowAddSubCategory] = useState(false);
@@ -65,13 +64,18 @@ export default function CustomerDetail() {
   const [editingDescription, setEditingDescription] = useState(false);
   const [editingNotes, setEditingNotes] = useState(false);
   const [totalMoneySaved, setTotalMoneySaved] = useState(0);
-  const [bundledSavings, setBundledSavings] = useState<Record<string, number>>({});
+  const [bundledSavings, setBundledSavings] = useState<Record<string, { name: string; amount: number }>>({});
+  const [showBundleModal, setShowBundleModal] = useState(false);
+  const [bundleName, setBundleName] = useState('');
+  const [selectedForBundle, setSelectedForBundle] = useState<string[]>([]);
   const [statusChangeModal, setStatusChangeModal] = useState<{taskId: string, taskName: string, newStatus: string} | null>(null);
   const [statusChangeComment, setStatusChangeComment] = useState('');
   const [deleteConfirmModal, setDeleteConfirmModal] = useState<{
     subCategoryId: string;
     subCategoryName: string;
   } | null>(null);
+  const [addingSubCategory, setAddingSubCategory] = useState(false);
+  const isSubmittingRef = useRef(false);
 
   useEffect(() => {
     if (customerPhone && isSupabaseConfigured && supabase) {
@@ -85,56 +89,22 @@ export default function CustomerDetail() {
     if (!supabase) return;
     
     try {
-      // Fetch both customer data in parallel for better performance
-      const [viewResult, customerResult] = await Promise.all([
-        supabase
-          .from('v_customer_with_assignment')
-          .select('*')
-          .eq('phone', customerPhone)
-          .single(),
-        supabase
-          .from('tbl_customer')
-          .select('*')
-          .eq('phone', customerPhone)
-          .single()
-      ]);
+      // Fetch customer from view to get last_message_at for WhatsApp
+      const { data: customerData, error: customerError } = await supabase
+        .from('v_customer_with_assignment')
+        .select('*')
+        .eq('phone', customerPhone)
+        .single();
 
-      if (viewResult.error) throw viewResult.error;
-      if (customerResult.error) throw customerResult.error;
-      
-      const viewData = viewResult.data;
-      const customerData = customerResult.data;
-      
-      console.log('Customer data from tbl_customer:', customerData);
-      console.log('View data:', viewData);
-      
-      // Merge the data - use view data for display but tbl_customer for contact tracking
-      const mergedCustomerData = {
-        ...viewData,
-        ...customerData,
-        assigned_servicer_name: viewData.assigned_servicer_name // Keep the servicer name from view
-      };
-      
-      setCustomer(mergedCustomerData);
-      setCustomerNotes(mergedCustomerData.notes || '');
-      setCustomerDescription(mergedCustomerData.description || '');
-      setCustomerFlags(mergedCustomerData.flags || []);
+      if (customerError) throw customerError;
+      setCustomer(customerData);
+      setCustomerNotes(customerData.notes || '');
+      setCustomerDescription(customerData.description || '');
+      setCustomerFlags(customerData.flags || []);
       
       // Set last contact times - use last_message_at for WhatsApp
-      // For Email and Phone, check if last contact method matches
-      if (mergedCustomerData.last_contact_method === 'Email') {
-        setLastEmailContact(mergedCustomerData.last_contact_at || null);
-      } else {
-        setLastEmailContact(null);
-      }
-      
-      if (mergedCustomerData.last_contact_method === 'Phone') {
-        setLastPhoneContact(mergedCustomerData.last_contact_at || null);
-      } else {
-        setLastPhoneContact(null);
-      }
-      
-      setLastWhatsAppContact(mergedCustomerData.last_message_at || null);
+      setLastEmailContact(customerData.last_email_contact || null);
+      setLastWhatsAppContact(customerData.last_message_at || null);
 
       // Fetch all categories and subcategories with tasks
       const { data: categoriesData, error: categoriesError } = await supabase
@@ -211,10 +181,14 @@ export default function CustomerDetail() {
       setTotalMoneySaved(total);
       
       // Calculate bundled savings for grouped subcategories
-      const bundles: Record<string, number> = {};
+      const bundles: Record<string, { name: string; amount: number }> = {};
       allSubCategories.forEach(subCat => {
         if (subCat.bundle_group) {
-          bundles[subCat.bundle_group] = (bundles[subCat.bundle_group] || 0) + (subCat.money_saved || 0);
+          const bundleName = subCat.bundle_name || 'Bundle';
+          if (!bundles[subCat.bundle_group]) {
+            bundles[subCat.bundle_group] = { name: bundleName, amount: 0 };
+          }
+          bundles[subCat.bundle_group].amount += (subCat.money_saved || 0);
         }
       });
       setBundledSavings(bundles);
@@ -305,12 +279,12 @@ export default function CustomerDetail() {
         throw error;
       }
 
-      // Update local state instead of refetching - preserve task order
+      // Update local state instead of refetching
       setSubCategories(prev => prev.map(sc => ({
         ...sc,
         tasks: sc.tasks?.map(t => 
           t.id === taskId ? { ...t, status: newStatus, last_updated: new Date().toISOString() } : t
-        ) // Don't re-sort, maintain existing order
+        )
       })));
     } catch (error) {
       console.error('Error updating task:', error);
@@ -355,12 +329,12 @@ export default function CustomerDetail() {
 
       if (error) throw error;
       
-      // Update local state instead of refetching - preserve task order
+      // Update local state instead of refetching
       setSubCategories(prev => prev.map(sc => ({
         ...sc,
         tasks: sc.tasks?.map(t => 
           t.id === taskId ? { ...t, completed_at: date ? new Date(date).toISOString() : null } : t
-        ) // Don't re-sort, maintain existing order
+        )
       })));
     } catch (error) {
       console.error('Error updating completed date:', error);
@@ -380,12 +354,12 @@ export default function CustomerDetail() {
 
       if (error) throw error;
       
-      // Update local state instead of refetching - preserve task order
+      // Update local state instead of refetching
       setSubCategories(prev => prev.map(sc => ({
         ...sc,
         tasks: sc.tasks?.map(t => 
           t.id === taskId ? { ...t, last_updated: date ? new Date(date).toISOString() : new Date().toISOString() } : t
-        ) // Don't re-sort, maintain existing order
+        )
       })));
     } catch (error) {
       console.error('Error updating last updated date:', error);
@@ -449,49 +423,92 @@ export default function CustomerDetail() {
     if (!supabase) return;
 
     try {
-      const { data, error } = await supabase
+      const { error } = await supabase
         .from('sub_categories')
         .update({ 
           money_saved: amount,
           last_update: new Date().toISOString()
         })
-        .eq('id', subCategoryId)
-        .select();
+        .eq('id', subCategoryId);
 
-      if (error) {
-        console.error('Error updating money saved:', error);
-        alert(`Failed to save: ${error.message}`);
-        throw error;
-      }
-      
-      console.log('Money saved updated successfully:', data);
+      if (error) throw error;
       
       // Update local state instead of refetching everything
       setSubCategories(prev => prev.map(sc => 
         sc.id === subCategoryId ? { ...sc, money_saved: amount } : sc
       ));
       
-      // Recalculate totals locally
-      const newTotal = subCategories.reduce((sum, sc) => 
-        sum + (sc.id === subCategoryId ? amount : (sc.money_saved || 0)), 0
-      );
+      // Recalculate totals locally including input values
+      const newTotal = subCategories.reduce((sum, sc) => {
+        const currentAmount = sc.id === subCategoryId ? amount : 
+          (moneySavedInputs[sc.id] !== undefined ? moneySavedInputs[sc.id] : (sc.money_saved || 0));
+        return sum + currentAmount;
+      }, 0);
       setTotalMoneySaved(newTotal);
+      
+      // Recalculate bundled savings
+      const bundles: Record<string, { name: string; amount: number }> = {};
+      subCategories.forEach(sc => {
+        if (sc.bundle_group) {
+          const bundleName = sc.bundle_name || 'Bundle';
+          if (!bundles[sc.bundle_group]) {
+            bundles[sc.bundle_group] = { name: bundleName, amount: 0 };
+          }
+          const currentAmount = sc.id === subCategoryId ? amount : 
+            (moneySavedInputs[sc.id] !== undefined ? moneySavedInputs[sc.id] : (sc.money_saved || 0));
+          bundles[sc.bundle_group].amount += currentAmount;
+        }
+      });
+      setBundledSavings(bundles);
     } catch (error) {
       console.error('Error updating money saved:', error);
     }
   };
   
+  // Create a ref to store the latest callback
+  const updateMoneySavedRef = useRef<(id: string, amount: number) => void>();
+  updateMoneySavedRef.current = (subCategoryId: string, amount: number) => {
+    updateSubCategoryMoneySaved(subCategoryId, amount);
+  };
+
   // Debounced version for input changes
   const debouncedUpdateMoneySaved = useCallback(
     debounce((subCategoryId: string, amount: number) => {
-      updateSubCategoryMoneySaved(subCategoryId, amount);
+      updateMoneySavedRef.current?.(subCategoryId, amount);
     }, 500),
     []
   );
   
-  const handleMoneySavedChange = (subCategoryId: string, value: string) => {
+  const handleMoneySavedChange = (subCategoryId: string, value: string, skipTotalUpdate?: boolean) => {
     const amount = parseFloat(value) || 0;
     setMoneySavedInputs(prev => ({ ...prev, [subCategoryId]: amount }));
+    
+    // Skip total update if called from bundle input (it handles its own totals)
+    if (!skipTotalUpdate) {
+      // Update total immediately in UI
+      const newTotal = subCategories.reduce((sum, sc) => {
+        if (sc.id === subCategoryId) return sum + amount;
+        return sum + (moneySavedInputs[sc.id] !== undefined ? moneySavedInputs[sc.id] : (sc.money_saved || 0));
+      }, 0);
+      setTotalMoneySaved(newTotal);
+      
+      // Update bundled savings immediately
+      const bundles: Record<string, { name: string; amount: number }> = {};
+      subCategories.forEach(sc => {
+        if (sc.bundle_group) {
+          const bundleName = sc.bundle_name || 'Bundle';
+          if (!bundles[sc.bundle_group]) {
+            bundles[sc.bundle_group] = { name: bundleName, amount: 0 };
+          }
+          const currentAmount = sc.id === subCategoryId ? amount : 
+            (moneySavedInputs[sc.id] !== undefined ? moneySavedInputs[sc.id] : (sc.money_saved || 0));
+          bundles[sc.bundle_group].amount += currentAmount;
+        }
+      });
+      setBundledSavings(bundles);
+    }
+    
+    // Save to database with debouncing
     debouncedUpdateMoneySaved(subCategoryId, amount);
   };
   
@@ -533,11 +550,7 @@ export default function CustomerDetail() {
         .eq('id', subCategoryId);
 
       if (error) throw error;
-      
-      // Update local state instead of refetching - preserve task order
-      setSubCategories(prev => prev.map(sc => 
-        sc.id === subCategoryId ? { ...sc, overall_status: newStatus, last_update: new Date().toISOString() } : sc
-      ));
+      fetchCustomerData();
     } catch (error) {
       console.error('Error updating subcategory status:', error);
     }
@@ -545,8 +558,22 @@ export default function CustomerDetail() {
 
   const handleAddSubCategory = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newSubCategoryName.trim() || !selectedCategory || !customerPhone || !supabase) return;
+    
+    const serviceName = newSubCategoryName.trim();
+    const categoryName = selectedCategory;
+    
+    if (!serviceName || !categoryName || !customerPhone || !supabase) return;
+    
+    // Absolute prevention of double submission
+    if (addingSubCategory || isSubmittingRef.current) {
+      console.warn('⚠️ Blocked duplicate submission attempt');
+      return;
+    }
 
+    // Lock the form immediately
+    setAddingSubCategory(true);
+    isSubmittingRef.current = true;
+    
     try {
       // First create or get the category
       let categoryId = '';
@@ -615,9 +642,13 @@ export default function CustomerDetail() {
       setNewSubCategoryName('');
       setSelectedCategory('');
       setShowAddSubCategory(false);
+      setAddingSubCategory(false);
+      isSubmittingRef.current = false;
       fetchCustomerData();
     } catch (error) {
       console.error('Error adding sub-category:', error);
+      setAddingSubCategory(false);
+      isSubmittingRef.current = false;
     }
   };
 
@@ -660,48 +691,136 @@ export default function CustomerDetail() {
     }
   };
 
+  const handleShowBundleModal = () => {
+    if (selectedForBundle.length < 2) {
+      console.log('Need at least 2 services selected for bundling');
+      return;
+    }
+    setShowBundleModal(true);
+    setBundleName('');
+  };
+
+
+  const createBundle = async (bundleName: string) => {
+    if (!supabase || selectedForBundle.length < 2) return;
+
+    try {
+      const bundleId = `bundle_${Date.now()}`;
+      const finalBundleName = bundleName.trim() || 'Bundle';
+
+      // Update subcategories with bundle info
+      const { data, error } = await supabase
+        .from('sub_categories')
+        .update({ 
+          bundle_group: bundleId,
+          bundle_name: finalBundleName,
+          last_update: new Date().toISOString()
+        })
+        .in('id', selectedForBundle)
+        .select();
+
+      if (error) {
+        console.error('Supabase bundle creation error:', error);
+        alert(`Failed to create bundle: ${error.message || 'Unknown error'}`);
+        throw error;
+      }
+      
+      console.log('Bundle created successfully:', data);
+      
+      setShowBundleModal(false);
+      setSelectedForBundle([]);
+      setBundleName('');
+      fetchCustomerData();
+    } catch (error) {
+      console.error('Error creating bundle:', error);
+      alert('Failed to create bundle. Please try again.');
+    }
+  };
+
+  const unbundleSubCategories = async (subCategoryIds: string[]) => {
+    if (!supabase || subCategoryIds.length === 0) return;
+
+    try {
+      const { error } = await supabase
+        .from('sub_categories')
+        .update({ 
+          bundle_group: null,
+          bundle_name: null,
+          last_update: new Date().toISOString()
+        })
+        .in('id', subCategoryIds)
+        .select();
+
+      if (error) {
+        console.error('Supabase unbundle error:', error);
+        alert(`Failed to unbundle: ${error.message || 'Unknown error'}`);
+        throw error;
+      }
+      
+      console.log('Unbundled successfully');
+      fetchCustomerData();
+    } catch (error) {
+      console.error('Error unbundling:', error);
+      alert('Failed to unbundle. Please try again.');
+    }
+  };
+
+  const removeFromBundle = async (subCategoryId: string) => {
+    if (!supabase) return;
+
+    try {
+      const { error } = await supabase
+        .from('sub_categories')
+        .update({ 
+          bundle_group: null,
+          bundle_name: null,
+          last_update: new Date().toISOString()
+        })
+        .eq('id', subCategoryId)
+        .select();
+
+      if (error) {
+        console.error('Error removing from bundle:', error);
+        alert(`Failed to remove from bundle: ${error.message}`);
+        throw error;
+      }
+      
+      console.log('Removed from bundle successfully');
+      fetchCustomerData();
+    } catch (error) {
+      console.error('Error removing from bundle:', error);
+      alert('Failed to remove from bundle. Please try again.');
+    }
+  };
+
   const quickLogCommunication = async (method: string) => {
     if (!supabase || !customer) return;
 
     try {
       const now = new Date().toISOString();
       
-      // Build update object - only use fields that exist in tbl_customer
+      // Build update object based on method
       const updateData: any = {
         last_contact_at: now,
         last_contact_method: method
       };
       
+      // Only update Email - WhatsApp is tracked via last_message_at automatically
+      if (method === 'Email') {
+        updateData.last_email_contact = now;
+        setLastEmailContact(now);
+      }
+      
       // Update customer's last contact time and method
-      const { data: updateResult, error: customerError } = await supabase
+      const { error: customerError } = await supabase
         .from('tbl_customer')
         .update(updateData)
-        .eq('phone', customer.phone)
-        .select();
+        .eq('phone', customer.phone);
 
-      if (customerError) {
-        console.error('Error updating contact:', customerError);
-        alert(`Failed to log contact: ${customerError.message}`);
-        throw customerError;
-      }
-      
-      console.log('Contact logged successfully:', updateResult);
-      
-      // Update local state for tracking - do this AFTER the database update succeeds
-      if (method === 'Email') {
-        setLastEmailContact(now);
-        setLastPhoneContact(null); // Clear phone since Email is now the last contact
-      } else if (method === 'Phone') {
-        setLastPhoneContact(now);
-        setLastEmailContact(null); // Clear email since Phone is now the last contact
-      }
-      
-      // Update customer object in state
-      setCustomer(prev => prev ? {
-        ...prev,
-        last_contact_at: now,
-        last_contact_method: method
-      } : prev);
+      if (customerError) throw customerError;
+
+      // Refresh the customer data to show the update immediately
+      fetchCustomerData();
       
       // Show success feedback
       const successMessage = `${method} contact logged at ${new Date(now).toLocaleTimeString()}`;
@@ -731,7 +850,7 @@ export default function CustomerDetail() {
         }
       }
       
-      // Don't fetch customer data - we've already updated the local state
+      fetchCustomerData();
     } catch (error) {
       console.error('Error logging communication:', error);
     }
@@ -831,6 +950,15 @@ export default function CustomerDetail() {
             <MessageCircle className="h-4 w-4 mr-2" />
             Communication Log
           </button>
+          {selectedForBundle.length > 1 && (
+            <button
+              onClick={() => handleShowBundleModal()}
+              className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-green-600 hover:bg-green-700"
+            >
+              <Link2 className="h-4 w-4 mr-2" />
+              Create Bundle ({selectedForBundle.length})
+            </button>
+          )}
           <button
             onClick={() => setShowAddSubCategory(true)}
             className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700"
@@ -854,10 +982,10 @@ export default function CustomerDetail() {
                 {Object.keys(bundledSavings).length > 0 && (
                   <div className="mt-2 pt-2 border-t border-green-200">
                     <p className="text-xs text-green-800 font-medium mb-1">Bundled Savings:</p>
-                    {Object.entries(bundledSavings).map(([bundle, amount]) => (
-                      <div key={bundle} className="flex justify-between text-xs">
-                        <span className="text-green-700 capitalize">{bundle}:</span>
-                        <span className="text-green-800 font-semibold">${amount.toFixed(2)}</span>
+                    {Object.entries(bundledSavings).map(([bundleId, bundle]) => (
+                      <div key={bundleId} className="flex justify-between text-xs">
+                        <span className="text-green-700 capitalize">{bundle?.name || 'Bundle'}:</span>
+                        <span className="text-green-800 font-semibold">${(bundle?.amount || 0).toFixed(2)}</span>
                       </div>
                     ))}
                   </div>
@@ -909,7 +1037,7 @@ export default function CustomerDetail() {
             <div className="flex items-center justify-between">
               <div className="flex-1">
                 <TimeSinceContact 
-                  lastContactDate={lastPhoneContact} 
+                  lastContactDate={customer?.last_contact_method === 'Phone' ? customer.last_contact_at : null} 
                   method="Phone" 
                 />
               </div>
@@ -1023,6 +1151,16 @@ export default function CustomerDetail() {
 
       {/* Services (SubCategories) Accordion */}
       <div className="space-y-4">
+        {/* Bundle instructions */}
+        {Object.keys(groupedSubCategories).length > 0 && (
+          <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 text-sm">
+            <p className="text-blue-800 font-medium">💡 Bundle Services for Savings</p>
+            <p className="text-blue-700 mt-1">
+              Select multiple services using the checkboxes, then click "Create Bundle" to group them together and track combined savings.
+            </p>
+          </div>
+        )}
+        
         {Object.keys(groupedSubCategories).length === 0 ? (
           <div className="text-center py-12 bg-white rounded-lg border">
             <Plus className="mx-auto h-12 w-12 text-gray-400" />
@@ -1039,11 +1177,19 @@ export default function CustomerDetail() {
                 const isExpanded = expandedSubCategories.has(subCategory.id);
                 const progress = getProgressForSubCategory(subCategory);
                 
+                const isInBundle = !!subCategory.bundle_group;
+                const bundleGroupId = subCategory.bundle_group;
+                const sameBundleItems = bundleGroupId ? subCats.filter(sc => sc.bundle_group === bundleGroupId) : [];
+                
                 return (
-                  <div key={subCategory.id} className="bg-white rounded-lg border shadow-sm">
+                  <div key={subCategory.id} className={`rounded-lg border shadow-sm ${
+                    isInBundle ? 'bg-blue-50 border-blue-300' : 'bg-white'
+                  }`}>
                     {/* SubCategory Header */}
                     <div
-                      className="px-6 py-4 flex items-center justify-between cursor-pointer hover:bg-gray-50"
+                      className={`px-6 py-4 flex items-center justify-between cursor-pointer ${
+                        isInBundle ? 'hover:bg-blue-100' : 'hover:bg-gray-50'
+                      }`}
                       onClick={() => toggleSubCategory(subCategory.id)}
                     >
                       <div className="flex items-center flex-1">
@@ -1052,7 +1198,14 @@ export default function CustomerDetail() {
                         ) : (
                           <ChevronRight className="h-5 w-5 text-gray-400 mr-3" />
                         )}
-                        <h4 className="text-lg font-medium text-gray-900">{subCategory.name}</h4>
+                        <h4 className="text-lg font-medium text-gray-900">
+                          {subCategory.name}
+                          {isInBundle && (
+                            <span className="ml-2 px-2 py-1 text-xs font-medium bg-blue-200 text-blue-800 rounded">
+                              {subCategory.bundle_name || 'Bundled'}
+                            </span>
+                          )}
+                        </h4>
                         <div className="ml-4 flex items-center space-x-4">
                           <span className="text-sm text-gray-500">
                             {progress.completed}/{progress.total} complete
@@ -1073,6 +1226,68 @@ export default function CustomerDetail() {
                         </div>
                       </div>
                       <div className="flex items-center space-x-2">
+                        {/* Bundle/Unbundle buttons */}
+                        {isInBundle ? (
+                          <>
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                removeFromBundle(subCategory.id);
+                              }}
+                              className="p-1 text-blue-600 hover:text-blue-800 hover:bg-blue-100 rounded transition-colors"
+                              title="Remove from bundle"
+                            >
+                              <Unlink className="h-4 w-4" />
+                            </button>
+                            {sameBundleItems.length > 1 && (
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  unbundleSubCategories(sameBundleItems.map(sc => sc.id));
+                                }}
+                                className="px-2 py-1 text-xs font-medium text-blue-600 bg-blue-100 hover:bg-blue-200 rounded"
+                                title="Unbundle all"
+                              >
+                                Unbundle All
+                              </button>
+                            )}
+                          </>
+                        ) : (
+                          selectedForBundle.length > 0 && selectedForBundle.includes(subCategory.id) && (
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setSelectedForBundle(prev => prev.filter(id => id !== subCategory.id));
+                              }}
+                              className="p-1 text-orange-600 hover:text-orange-800 hover:bg-orange-100 rounded transition-colors"
+                              title="Remove from bundle selection"
+                            >
+                              <Unlink className="h-4 w-4" />
+                            </button>
+                          )
+                        )}
+                        
+                        {/* Selection checkbox for bundling */}
+                        {!isInBundle && (
+                          <label className="flex items-center cursor-pointer px-2 py-1 hover:bg-gray-100 rounded" title="Select to bundle with other services">
+                            <input
+                              type="checkbox"
+                              checked={selectedForBundle.includes(subCategory.id)}
+                              onChange={(e) => {
+                                e.stopPropagation();
+                                if (e.target.checked) {
+                                  setSelectedForBundle(prev => [...prev, subCategory.id]);
+                                } else {
+                                  setSelectedForBundle(prev => prev.filter(id => id !== subCategory.id));
+                                }
+                              }}
+                              onClick={(e) => e.stopPropagation()}
+                              className="h-5 w-5 text-blue-600 border-2 border-gray-300 rounded focus:ring-blue-500 mr-1"
+                            />
+                            <span className="text-xs text-gray-600">Bundle</span>
+                          </label>
+                        )}
+                        
                         <select
                           value={subCategory.overall_status || 'Not Started'}
                           onChange={(e) => {
@@ -1105,11 +1320,91 @@ export default function CustomerDetail() {
                     {/* Tasks */}
                     {isExpanded && (
                       <div className="border-t px-8 py-4 bg-gray-50">
-                        {/* Subcategory Money Saved */}
+                        {/* Bundle Money Saved - show special input for bundle total */}
+                        {isInBundle && sameBundleItems.length > 1 && sameBundleItems[0].id === subCategory.id && (
+                          <div className="mb-4 flex items-center justify-between bg-blue-100 p-3 rounded border border-blue-300">
+                            <div className="flex items-center">
+                              <DollarSign className="h-5 w-5 text-blue-600 mr-2" />
+                              <span className="text-sm font-medium text-blue-900">Total Bundle Savings ({subCategory.bundle_name}):</span>
+                            </div>
+                            <div className="flex items-center">
+                              <span className="text-sm text-blue-700 mr-1">$</span>
+                              <input
+                                type="number"
+                                key={`bundle-${bundleGroupId}`}
+                                value={sameBundleItems.reduce((sum, item) => sum + (moneySavedInputs[item.id] !== undefined ? moneySavedInputs[item.id] : (item.money_saved || 0)), 0).toFixed(2)}
+                                onChange={(e) => {
+                                  const newTotal = parseFloat(e.target.value) || 0;
+                                  
+                                  // Store entire amount on first item, zero on others
+                                  const updates: Record<string, number> = {};
+                                  sameBundleItems.forEach((item, index) => {
+                                    updates[item.id] = index === 0 ? newTotal : 0;
+                                  });
+                                  
+                                  // Update all at once
+                                  setMoneySavedInputs(prev => ({
+                                    ...prev,
+                                    ...updates
+                                  }));
+                                  
+                                  // Calculate and update totals immediately
+                                  const totalSavings = subCategories.reduce((sum, sc) => {
+                                    // Check if this subcategory is part of the current bundle being updated
+                                    const isInCurrentBundle = sameBundleItems.some(item => item.id === sc.id);
+                                    
+                                    if (isInCurrentBundle) {
+                                      // Use the update value for bundle items
+                                      return sum + (updates[sc.id] || 0);
+                                    } else {
+                                      // For non-bundle items, use saved input or database value
+                                      return sum + (moneySavedInputs[sc.id] !== undefined ? moneySavedInputs[sc.id] : (sc.money_saved || 0));
+                                    }
+                                  }, 0);
+                                  setTotalMoneySaved(totalSavings);
+                                  
+                                  // Update bundled savings
+                                  const bundles: Record<string, { name: string; amount: number }> = {};
+                                  subCategories.forEach(sc => {
+                                    if (sc.bundle_group) {
+                                      const bundleName = sc.bundle_name || 'Bundle';
+                                      if (!bundles[sc.bundle_group]) {
+                                        bundles[sc.bundle_group] = { name: bundleName, amount: 0 };
+                                      }
+                                      let currentAmount = sc.money_saved || 0;
+                                      if (updates[sc.id] !== undefined) currentAmount = updates[sc.id];
+                                      else if (moneySavedInputs[sc.id] !== undefined) currentAmount = moneySavedInputs[sc.id];
+                                      bundles[sc.bundle_group].amount += currentAmount;
+                                    }
+                                  });
+                                  setBundledSavings(bundles);
+                                  
+                                  // Save to database after delay (skip total recalculation)
+                                  sameBundleItems.forEach((item, index) => {
+                                    const amount = index === 0 ? newTotal : 0;
+                                    // Don't call handleMoneySavedChange as it would recalculate with old values
+                                    // Just update database directly
+                                    debouncedUpdateMoneySaved(item.id, amount);
+                                  });
+                                }}
+                                className="w-24 text-sm border-blue-300 rounded focus:ring-blue-500 focus:border-blue-500 font-bold"
+                                placeholder="0.00"
+                                step="0.01"
+                                min="0"
+                                onClick={(e) => e.stopPropagation()}
+                                title="Enter the total savings for this bundle"
+                              />
+                            </div>
+                          </div>
+                        )}
+                        
+                        {/* Individual Subcategory Money Saved */}
                         <div className="mb-4 flex items-center justify-between bg-green-50 p-3 rounded">
                           <div className="flex items-center">
                             <DollarSign className="h-5 w-5 text-green-600 mr-2" />
-                            <span className="text-sm font-medium text-green-900">Money Saved for {subCategory.name}:</span>
+                            <span className="text-sm font-medium text-green-900">
+                              {isInBundle ? `Individual Savings (${subCategory.name}):` : `Money Saved for ${subCategory.name}:`}
+                            </span>
                           </div>
                           <div className="flex items-center">
                             <span className="text-sm text-green-700 mr-1">$</span>
@@ -1122,6 +1417,8 @@ export default function CustomerDetail() {
                               step="0.01"
                               min="0"
                               onClick={(e) => e.stopPropagation()}
+                              disabled={isInBundle}
+                              title={isInBundle ? "Use the Total Bundle Savings field above to update bundle amount" : ""}
                             />
                           </div>
                         </div>
@@ -1277,9 +1574,10 @@ export default function CustomerDetail() {
                 </button>
                 <button
                   type="submit"
-                  className="px-4 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-md"
+                  disabled={addingSubCategory}
+                  className="px-4 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed rounded-md"
                 >
-                  Add Service
+                  {addingSubCategory ? 'Adding...' : 'Add Service'}
                 </button>
               </div>
             </form>
@@ -1355,6 +1653,74 @@ export default function CustomerDetail() {
                 Delete
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Bundle Creation Modal */}
+      {showBundleModal && (
+        <div className="fixed inset-0 bg-gray-600 bg-opacity-50 flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-lg p-6 w-full max-w-md">
+            <h3 className="text-lg font-medium text-gray-900 mb-4">Create Bundle</h3>
+            <form onSubmit={(e) => {
+              e.preventDefault();
+              createBundle(bundleName);
+            }}>
+              <div className="mb-4">
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Bundle Name
+                </label>
+                <input
+                  type="text"
+                  value={bundleName}
+                  onChange={(e) => setBundleName(e.target.value)}
+                  className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+                  placeholder="Enter bundle name (e.g., 'Utilities Bundle')"
+                  required
+                />
+              </div>
+              <div className="mb-4">
+                <p className="text-sm text-gray-600 mb-2">Selected Services:</p>
+                <ul className="text-sm space-y-1">
+                  {selectedForBundle.map(id => {
+                    const subCat = subCategories.find(sc => sc.id === id);
+                    return subCat && (
+                      <li key={id} className="flex items-center">
+                        <CheckCircle className="h-4 w-4 text-green-500 mr-2" />
+                        {subCat.name}
+                      </li>
+                    );
+                  })}
+                </ul>
+              </div>
+              <div className="bg-green-50 border border-green-200 rounded p-3 text-sm text-green-700">
+                <p className="font-medium">Total Bundle Savings:</p>
+                <p className="text-lg font-bold">
+                  ${selectedForBundle.reduce((sum, id) => {
+                    const subCat = subCategories.find(sc => sc.id === id);
+                    return sum + (subCat?.money_saved || 0);
+                  }, 0).toFixed(2)}
+                </p>
+              </div>
+              <div className="flex justify-end space-x-3 mt-4">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowBundleModal(false);
+                    setBundleName('');
+                  }}
+                  className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-md"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="px-4 py-2 text-sm font-medium text-white bg-green-600 hover:bg-green-700 rounded-md"
+                >
+                  Create Bundle
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}
