@@ -84,6 +84,7 @@ export type SubCategory = {
   completed_at?: string;
   created_at: string;
   category?: Category;
+  notes?: string;
 };
 
 export type Task = {

@@ -148,7 +148,8 @@ export async function fetchStaleTasks(thresholdDays: number = 3, servicerUUID?: 
     thresholdDate.setDate(thresholdDate.getDate() - thresholdDays);
 
     return tasks.filter(task => 
-      !task.last_updated || new Date(task.last_updated) < thresholdDate
+      task.status !== 'Complete' &&
+      (!task.last_updated || new Date(task.last_updated) < thresholdDate)
     );
   } catch (error) {
     console.error('Error in fetchStaleTasks:', error);
@@ -166,8 +167,10 @@ export async function getCustomerStats(customerPhone: string) {
     const now = new Date();
     const staleThreshold = new Date(now.getTime() - 3 * 24 * 60 * 60 * 1000);
 
+    // Only count incomplete tasks as stale/overdue
     const staleTasks = tasks.filter(task => 
-      !task.last_updated || new Date(task.last_updated) < staleThreshold
+      task.status !== 'Complete' && 
+      (!task.last_updated || new Date(task.last_updated) < staleThreshold)
     );
 
     const sortedTasks = tasks
@@ -212,11 +215,13 @@ export async function getDashboardStats(servicerUUID?: string) {
     const overdueThreshold = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
 
     const tasksNeedingUpdate = tasks.filter(task => 
-      !task.last_updated || new Date(task.last_updated) < staleThreshold
+      task.status !== 'Complete' &&
+      (!task.last_updated || new Date(task.last_updated) < staleThreshold)
     );
 
     const overdueTasks = tasks.filter(task => 
-      !task.last_updated || new Date(task.last_updated) < overdueThreshold
+      task.status !== 'Complete' &&
+      (!task.last_updated || new Date(task.last_updated) < overdueThreshold)
     );
 
     // Get unique customers with stale tasks

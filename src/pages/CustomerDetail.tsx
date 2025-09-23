@@ -537,6 +537,26 @@ export default function CustomerDetail() {
     }
   };
 
+  const updateSubCategoryNotes = async (subCategoryId: string, notes: string) => {
+    if (!supabase) return;
+
+    try {
+      const { error } = await supabase
+        .from('sub_categories')
+        .update({ notes })
+        .eq('id', subCategoryId);
+
+      if (error) throw error;
+
+      // Update local state
+      setSubCategories(prev => prev.map(sc => 
+        sc.id === subCategoryId ? { ...sc, notes } : sc
+      ));
+    } catch (error) {
+      console.error('Error updating subcategory notes:', error);
+    }
+  };
+
   const updateSubCategoryStatus = async (subCategoryId: string, newStatus: string) => {
     if (!supabase) return;
 
@@ -1421,6 +1441,21 @@ export default function CustomerDetail() {
                               title={isInBundle ? "Use the Total Bundle Savings field above to update bundle amount" : ""}
                             />
                           </div>
+                        </div>
+                        
+                        {/* Subcategory Notes */}
+                        <div className="mb-4 bg-yellow-50 p-3 rounded">
+                          <div className="flex items-center mb-2">
+                            <FileText className="h-4 w-4 text-yellow-600 mr-2" />
+                            <span className="text-sm font-medium text-gray-700">Notes for {subCategory.name}:</span>
+                          </div>
+                          <textarea
+                            value={subCategory.notes || ''}
+                            onChange={(e) => updateSubCategoryNotes(subCategory.id, e.target.value)}
+                            className="w-full text-sm border-gray-300 rounded focus:ring-blue-500 focus:border-blue-500 min-h-[60px] p-2"
+                            placeholder={`Add notes about ${subCategory.name} (e.g., provider changes, policy details)...`}
+                            onClick={(e) => e.stopPropagation()}
+                          />
                         </div>
                         {subCategory.tasks?.length === 0 ? (
                           <p className="text-sm text-gray-500">No tasks yet</p>
