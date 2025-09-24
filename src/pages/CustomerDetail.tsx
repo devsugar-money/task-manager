@@ -155,24 +155,50 @@ export default function CustomerDetail() {
       setSubCategories(allSubCategories);
       
       // Initialize money saved inputs with current values
-      const initialMoneySaved: Record<string, number> = {};
-      const initialDates: Record<string, string> = {};
-      
-      allSubCategories.forEach(subCat => {
-        initialMoneySaved[subCat.id] = subCat.money_saved || 0;
-        
-        // Initialize date inputs for tasks
-        subCat.tasks?.forEach(task => {
-          if (task.status === 'Complete' && task.completed_at) {
-            initialDates[task.id] = new Date(task.completed_at).toISOString().split('T')[0];
-          } else if (task.last_updated) {
-            initialDates[task.id] = new Date(task.last_updated).toISOString().split('T')[0];
+      // Only update if we don't already have values in state (preserve unsaved changes)
+      setMoneySavedInputs(prev => {
+        // Try to load from localStorage first
+        let savedValues: Record<string, number> = {};
+        if (customerPhone) {
+          const stored = localStorage.getItem(`moneySaved_${customerPhone}`);
+          if (stored) {
+            try {
+              savedValues = JSON.parse(stored);
+            } catch (e) {
+              console.error('Failed to parse saved money values:', e);
+            }
           }
+        }
+        
+        const newInputs: Record<string, number> = {};
+        allSubCategories.forEach(subCat => {
+          // Priority: 1. Current state, 2. localStorage, 3. Database value
+          newInputs[subCat.id] = prev[subCat.id] !== undefined 
+            ? prev[subCat.id] 
+            : (savedValues[subCat.id] !== undefined 
+              ? savedValues[subCat.id] 
+              : (subCat.money_saved || 0));
         });
+        return newInputs;
       });
       
-      setMoneySavedInputs(initialMoneySaved);
-      setTaskDateInputs(initialDates);
+      // Initialize date inputs for tasks
+      setTaskDateInputs(prev => {
+        const newDates: Record<string, string> = {};
+        allSubCategories.forEach(subCat => {
+          subCat.tasks?.forEach(task => {
+            // Keep existing date input if it exists
+            if (prev[task.id]) {
+              newDates[task.id] = prev[task.id];
+            } else if (task.status === 'Complete' && task.completed_at) {
+              newDates[task.id] = new Date(task.completed_at).toISOString().split('T')[0];
+            } else if (task.last_updated) {
+              newDates[task.id] = new Date(task.last_updated).toISOString().split('T')[0];
+            }
+          });
+        });
+        return newDates;
+      });
 
       // Calculate total money saved and bundled savings
       const total = allSubCategories.reduce((sum, subCat) => {
@@ -438,6 +464,26 @@ export default function CustomerDetail() {
         sc.id === subCategoryId ? { ...sc, money_saved: amount } : sc
       ));
       
+      // Clear this value from localStorage after successful save
+      if (customerPhone) {
+        const stored = localStorage.getItem(`moneySaved_${customerPhone}`);
+        if (stored) {
+          try {
+            const savedValues = JSON.parse(stored);
+            if (savedValues[subCategoryId] === amount) {
+              delete savedValues[subCategoryId];
+              if (Object.keys(savedValues).length > 0) {
+                localStorage.setItem(`moneySaved_${customerPhone}`, JSON.stringify(savedValues));
+              } else {
+                localStorage.removeItem(`moneySaved_${customerPhone}`);
+              }
+            }
+          } catch (e) {
+            console.error('Failed to update localStorage:', e);
+          }
+        }
+      }
+      
       // Recalculate totals locally including input values
       const newTotal = subCategories.reduce((sum, sc) => {
         const currentAmount = sc.id === subCategoryId ? amount : 
@@ -481,7 +527,14 @@ export default function CustomerDetail() {
   
   const handleMoneySavedChange = (subCategoryId: string, value: string, skipTotalUpdate?: boolean) => {
     const amount = parseFloat(value) || 0;
-    setMoneySavedInputs(prev => ({ ...prev, [subCategoryId]: amount }));
+    setMoneySavedInputs(prev => {
+      const updated = { ...prev, [subCategoryId]: amount };
+      // Save to localStorage for persistence
+      if (customerPhone) {
+        localStorage.setItem(`moneySaved_${customerPhone}`, JSON.stringify(updated));
+      }
+      return updated;
+    });
     
     // Skip total update if called from bundle input (it handles its own totals)
     if (!skipTotalUpdate) {
@@ -1363,10 +1416,14 @@ export default function CustomerDetail() {
                                   });
                                   
                                   // Update all at once
-                                  setMoneySavedInputs(prev => ({
-                                    ...prev,
-                                    ...updates
-                                  }));
+                                  setMoneySavedInputs(prev => {
+                                    const updated = { ...prev, ...updates };
+                                    // Save to localStorage for persistence
+                                    if (customerPhone) {
+                                      localStorage.setItem(`moneySaved_${customerPhone}`, JSON.stringify(updated));
+                                    }
+                                    return updated;
+                                  });
                                   
                                   // Calculate and update totals immediately
                                   const totalSavings = subCategories.reduce((sum, sc) => {
