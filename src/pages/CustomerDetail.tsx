@@ -40,6 +40,7 @@ export default function CustomerDetail() {
   const [loading, setLoading] = useState(true);
   const [moneySavedInputs, setMoneySavedInputs] = useState<Record<string, number>>({});
   const [taskDateInputs, setTaskDateInputs] = useState<Record<string, string>>({});
+  const [taskNotesInputs, setTaskNotesInputs] = useState<Record<string, string>>({});
   const [communications, setCommunications] = useState<Array<{
     id: string;
     created_at: string;
@@ -198,6 +199,18 @@ export default function CustomerDetail() {
           });
         });
         return newDates;
+      });
+
+      // Initialize notes inputs for tasks
+      setTaskNotesInputs(prev => {
+        const newNotes: Record<string, string> = {};
+        allSubCategories.forEach(subCat => {
+          subCat.tasks?.forEach(task => {
+            // Keep existing notes input if it exists, otherwise use database value
+            newNotes[task.id] = prev[task.id] !== undefined ? prev[task.id] : (task.notes || '');
+          });
+        });
+        return newNotes;
       });
 
       // Calculate total money saved and bundled savings
@@ -579,6 +592,13 @@ export default function CustomerDetail() {
     }, 500),
     []
   );
+
+  const debouncedUpdateTaskNotes = useCallback(
+    debounce((taskId: string, notes: string) => {
+      updateTaskNotes(taskId, notes);
+    }, 500),
+    []
+  );
   
   const handleTaskDateChange = (taskId: string, date: string, isComplete: boolean) => {
     setTaskDateInputs(prev => ({ ...prev, [taskId]: date }));
@@ -588,6 +608,11 @@ export default function CustomerDetail() {
     } else {
       debouncedUpdateLastUpdated(taskId, date);
     }
+  };
+
+  const handleTaskNotesChange = (taskId: string, notes: string) => {
+    setTaskNotesInputs(prev => ({ ...prev, [taskId]: notes }));
+    debouncedUpdateTaskNotes(taskId, notes);
   };
 
   const updateSubCategoryNotes = async (subCategoryId: string, notes: string) => {
@@ -607,6 +632,32 @@ export default function CustomerDetail() {
       ));
     } catch (error) {
       console.error('Error updating subcategory notes:', error);
+    }
+  };
+
+  const updateTaskNotes = async (taskId: string, notes: string) => {
+    if (!supabase) return;
+
+    try {
+      const { error } = await supabase
+        .from('tasks')
+        .update({ 
+          notes,
+          last_updated: new Date().toISOString()
+        })
+        .eq('id', taskId);
+
+      if (error) throw error;
+
+      // Update local state
+      setSubCategories(prev => prev.map(sc => ({
+        ...sc,
+        tasks: sc.tasks?.map(t => 
+          t.id === taskId ? { ...t, notes } : t
+        )
+      })));
+    } catch (error) {
+      console.error('Error updating task notes:', error);
     }
   };
 
@@ -1593,9 +1644,16 @@ export default function CustomerDetail() {
                                     )}
                                   </div>
                                 </div>
-                                {task.notes && (
-                                  <p className="mt-2 text-xs text-gray-600 pl-8">{task.notes}</p>
-                                )}
+                                {/* Task Notes - Always show textarea for notes */}
+                                <div className="mt-2 pl-8">
+                                  <textarea
+                                    value={taskNotesInputs[task.id] || ''}
+                                    onChange={(e) => handleTaskNotesChange(task.id, e.target.value)}
+                                    className="w-full text-xs border-gray-300 rounded focus:ring-blue-500 focus:border-blue-500 p-2 min-h-[40px]"
+                                    placeholder="Add notes for this task..."
+                                    onClick={(e) => e.stopPropagation()}
+                                  />
+                                </div>
                               </div>
                             ))}
                           </div>
