@@ -116,6 +116,7 @@ export default function Updates() {
         throw error;
       }
 
+      console.log('Fetched updates:', data);
       setUpdates(data || []);
     } catch (error) {
       console.error('Error fetching updates:', error);

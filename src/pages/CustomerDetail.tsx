@@ -330,9 +330,17 @@ export default function CustomerDetail() {
 
       // Check if automatic WhatsApp should be sent for this status change
       const shouldSendAutoWhatsApp = shouldTriggerAutoWhatsApp(currentTask?.status, newStatus);
+      console.log('Auto WhatsApp check:', {
+        oldStatus: currentTask?.status,
+        newStatus,
+        shouldSendAutoWhatsApp,
+        currentTask
+      });
+      
       if (shouldSendAutoWhatsApp) {
         updateData.communicated = true;
         updateData.communication_method = 'WhatsApp';
+        console.log('Setting automatic WhatsApp communication', updateData);
       }
 
       const { error } = await supabase

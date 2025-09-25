@@ -139,6 +139,7 @@ export const PREDEFINED_CATEGORIES = [
   'Insurance',
   'Investment',
   'IRD',
+  'Kiwisaver',
   'Tax',
   'Utilities'
 ];
@@ -161,7 +162,9 @@ export const SUBCATEGORY_STATUSES = [
   'In Progress',
   'Waiting On Partner',
   'Can\'t Optimise',
-  'Optimised'
+  'Optimised',
+  'No Response',
+  'Optimisation Declined'
 ];
 
 export const CUSTOMER_FLAGS = [
@@ -184,11 +187,12 @@ export const COMMUNICATION_METHODS = [
 export const SUB_CATEGORIES = {
   'Banking/Saving': ['Banking Optimisation'],
   'Credit Card': ['Credit Card - Balance Transfer', 'Credit Card - Rewards'],
-  'Debt': ['Debt Consolidation', 'New Loan', 'Hardship', 'Nga Tangata', 'Good Shepherd'],
+  'Debt': ['Debt Consolidation', 'New Loan', 'Hardship', 'Nga Tangata', 'Good Shepherd', 'Settlement'],
   'Housing': ['First Home Buyer', 'Refinancing Mortgage', 'Rent'],
   'Insurance': ['Car Insurance', 'Health Insurance', 'House Insurance', 'Pet Insurance', 'Contents Insurance', 'Life Insurance'],
   'Investment': ['Starting Investing', 'Optimising Investments'],
   'IRD': ['Unclaimed Money'],
+  'Kiwisaver': ['Withdrawal', 'Optimisation'],
   'Tax': ['Tax - Optimisation'],
   'Utilities': ['Broadband', 'Power', 'Mobile', 'Gas']
 };
@@ -218,5 +222,8 @@ export const PREDEFINED_TASKS_BY_SUB_CATEGORY: Record<string, string[]> = {
   'Broadband': ['Get recent bill', 'Compare providers', 'Check bundle options', 'Suggest optimisation'],
   'Power': ['Get recent bills', 'Check current rates', 'Compare providers', 'Check bundle options', 'Suggest optimisation', 'Guide through switch'],
   'Mobile': ['Get recent bill', 'Compare plans', 'Check coverage maps', 'Suggest optimisation', 'Guide through switch'],
-  'Gas': ['Get recent bills', 'Check current rates', 'Compare providers', 'Check bundle options', 'Suggest optimisation', 'Guide through switch']
+  'Gas': ['Get recent bills', 'Check current rates', 'Compare providers', 'Check bundle options', 'Suggest optimisation', 'Guide through switch'],
+  'Withdrawal': ['Collect the documents', 'Send form to client to fill', 'Double check and send template for client to send off'],
+  'Optimisation': ['Get screenshot of last years contributions', 'Get current provider and fund', 'Compare last year and expected next year difference', 'Send recommendation'],
+  'Settlement': ['Collect information', 'Send first email template (offering 30%)', 'Send second email template (offering 50%)', 'Send third email template (offering 70%)', 'Arrange payment settlement payment']
 };
