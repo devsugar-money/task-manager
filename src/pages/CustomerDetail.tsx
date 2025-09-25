@@ -1,13 +1,13 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { ArrowLeft, Plus, ChevronDown, ChevronRight, MessageCircle, CheckCircle, User, DollarSign, FileText, Save, Flag, Trash2, Mail, Link2, Unlink } from 'lucide-react';
+import { ArrowLeft, Plus, ChevronDown, ChevronRight, MessageCircle, CheckCircle, User, DollarSign, FileText, Save, Flag, Trash2, Link2, Unlink } from 'lucide-react';
 import { supabase, isSupabaseConfigured, Customer, SubCategory, Task, SUB_CATEGORIES, PREDEFINED_TASKS_BY_SUB_CATEGORY, PREDEFINED_STATUSES, PREDEFINED_CATEGORIES, CUSTOMER_FLAGS, SUBCATEGORY_STATUSES } from '../lib/supabase';
 import Breadcrumb from '../components/Breadcrumb';
 import SupabaseStatus from '../components/SupabaseStatus';
 import TimeSinceContact from '../components/TimeSinceContact';
 
 // Simple debounce function
-function debounce<T extends (...args: any[]) => void>(func: T, wait: number): T {
+function debounce<T extends (...args: unknown[]) => void>(func: T, wait: number): T {
   let timeout: NodeJS.Timeout | null = null;
   return ((...args) => {
     if (timeout) clearTimeout(timeout);
@@ -32,11 +32,20 @@ export default function CustomerDetail() {
   const [customer, setCustomer] = useState<Customer | null>(null);
   const [lastEmailContact, setLastEmailContact] = useState<string | null>(null);
   const [lastWhatsAppContact, setLastWhatsAppContact] = useState<string | null>(null);
+  const [lastTextContact, setLastTextContact] = useState<string | null>(null);
+  const [showEmailDatePicker, setShowEmailDatePicker] = useState(false);
+  const [showTextDatePicker, setShowTextDatePicker] = useState(false);
   const [subCategories, setSubCategories] = useState<ExtendedSubCategory[]>([]);
   const [expandedSubCategories, setExpandedSubCategories] = useState<Set<string>>(new Set());
   const [showAddSubCategory, setShowAddSubCategory] = useState(false);
   const [selectedCategory, setSelectedCategory] = useState<string>('');
   const [newSubCategoryName, setNewSubCategoryName] = useState('');
+  const [isCustomCategory, setIsCustomCategory] = useState(false);
+  const [customCategoryName, setCustomCategoryName] = useState('');
+  const [isCustomSubCategory, setIsCustomSubCategory] = useState(false);
+  const [customSubCategoryName, setCustomSubCategoryName] = useState('');
+  const [customTasks, setCustomTasks] = useState<string[]>([]);
+  const [newTaskInput, setNewTaskInput] = useState('');
   const [loading, setLoading] = useState(true);
   const [moneySavedInputs, setMoneySavedInputs] = useState<Record<string, number>>({});
   const [taskDateInputs, setTaskDateInputs] = useState<Record<string, string>>({});
@@ -78,6 +87,24 @@ export default function CustomerDetail() {
   const [addingSubCategory, setAddingSubCategory] = useState(false);
   const isSubmittingRef = useRef(false);
 
+  // Helper function to determine if automatic WhatsApp should be sent
+  const shouldTriggerAutoWhatsApp = (oldStatus?: string, newStatus?: string) => {
+    if (!newStatus) return false;
+    
+    // Send automatic WhatsApp when task is completed
+    if (newStatus === 'Complete') {
+      return true;
+    }
+    
+    // Send automatic WhatsApp when task moves to certain statuses that indicate customer action needed
+    const autoWhatsAppStatuses = ['Waiting on Info', 'Sent Info', 'Call Arranged'];
+    if (autoWhatsAppStatuses.includes(newStatus) && oldStatus !== newStatus) {
+      return true;
+    }
+    
+    return false;
+  };
+
   useEffect(() => {
     if (customerPhone && isSupabaseConfigured && supabase) {
       fetchCustomerData();
@@ -106,6 +133,7 @@ export default function CustomerDetail() {
       // Set last contact times - use last_message_at for WhatsApp
       setLastEmailContact(customerData.last_email_contact || null);
       setLastWhatsAppContact(customerData.last_message_at || null);
+      setLastTextContact(customerData.last_text_contact || null);
 
       // Fetch all categories and subcategories with tasks
       const { data: categoriesData, error: categoriesError } = await supabase
@@ -278,7 +306,7 @@ export default function CustomerDetail() {
         .single();
 
       // Build update data - don't send completed_at unless needed
-      let updateData: any = { 
+      const updateData: Record<string, unknown> = { 
         status: newStatus,
         last_updated: new Date().toISOString(),
         updated_by: customer?.assigned_to || null  // Include servicer UUID
@@ -300,7 +328,14 @@ export default function CustomerDetail() {
         // Removed status_change_comment - not in current database schema
       }
 
-      const { data, error } = await supabase
+      // Check if automatic WhatsApp should be sent for this status change
+      const shouldSendAutoWhatsApp = shouldTriggerAutoWhatsApp(currentTask?.status, newStatus);
+      if (shouldSendAutoWhatsApp) {
+        updateData.communicated = true;
+        updateData.communication_method = 'WhatsApp';
+      }
+
+      const { error } = await supabase
         .from('tasks')
         .update(updateData)
         .eq('id', taskId)
@@ -683,8 +718,8 @@ export default function CustomerDetail() {
   const handleAddSubCategory = async (e: React.FormEvent) => {
     e.preventDefault();
     
-    const serviceName = newSubCategoryName.trim();
-    const categoryName = selectedCategory;
+    const serviceName = isCustomSubCategory ? customSubCategoryName.trim() : newSubCategoryName.trim();
+    const categoryName = isCustomCategory ? customCategoryName.trim() : selectedCategory;
     
     if (!serviceName || !categoryName || !customerPhone || !supabase) return;
     
@@ -703,12 +738,13 @@ export default function CustomerDetail() {
       let categoryId = '';
       
       // Check if category exists
-      const { data: existingCategory } = await supabase
+      const { data: existingCategories } = await supabase
         .from('categories')
         .select('id')
         .eq('customer_phone', customerPhone)
-        .eq('name', selectedCategory)
-        .single();
+        .eq('name', categoryName);
+      
+      const existingCategory = existingCategories?.[0];
 
       if (existingCategory) {
         categoryId = existingCategory.id;
@@ -718,7 +754,7 @@ export default function CustomerDetail() {
           .from('categories')
           .insert({
             customer_phone: customerPhone,
-            name: selectedCategory,
+            name: categoryName,
             start_time: new Date().toISOString(),
             status: 'Not Started'
           })
@@ -734,7 +770,7 @@ export default function CustomerDetail() {
         .from('sub_categories')
         .insert({
           category_id: categoryId,
-          name: newSubCategoryName.trim(),
+          name: serviceName,
           start_time: new Date().toISOString(),
           status: 'Not Started'
         })
@@ -743,17 +779,30 @@ export default function CustomerDetail() {
 
       if (subCategoryError) throw subCategoryError;
 
-      // Create predefined tasks for this sub-category
-      const predefinedTasks = PREDEFINED_TASKS_BY_SUB_CATEGORY[newSubCategoryName.trim()];
-      if (predefinedTasks && predefinedTasks.length > 0) {
-        const tasksToInsert = predefinedTasks.map(taskName => ({
+      // Create tasks for this sub-category
+      let tasksToCreate: string[] = [];
+      
+      if (isCustomSubCategory && customTasks.length > 0) {
+        // Use custom tasks if provided
+        tasksToCreate = customTasks;
+      } else if (!isCustomSubCategory) {
+        // Use predefined tasks if not custom
+        const predefinedTasks = PREDEFINED_TASKS_BY_SUB_CATEGORY[serviceName];
+        if (predefinedTasks) {
+          tasksToCreate = predefinedTasks;
+        }
+      }
+      
+      if (tasksToCreate.length > 0) {
+        const tasksToInsert = tasksToCreate.map((taskName, index) => ({
           sub_category_id: subCategoryData.id,
           name: taskName,
           status: 'Not Started',
           notes: '',
           start_date: new Date().toISOString(),
           communicated: false,
-          money_saved: 0
+          money_saved: 0,
+          position: index
         }));
 
         const { error: tasksError } = await supabase
@@ -768,6 +817,12 @@ export default function CustomerDetail() {
       setShowAddSubCategory(false);
       setAddingSubCategory(false);
       isSubmittingRef.current = false;
+      setIsCustomCategory(false);
+      setCustomCategoryName('');
+      setIsCustomSubCategory(false);
+      setCustomSubCategoryName('');
+      setCustomTasks([]);
+      setNewTaskInput('');
       fetchCustomerData();
     } catch (error) {
       console.error('Error adding sub-category:', error);
@@ -917,22 +972,27 @@ export default function CustomerDetail() {
     }
   };
 
-  const quickLogCommunication = async (method: string) => {
+  const quickLogCommunication = async (method: string, customDate?: string) => {
     if (!supabase || !customer) return;
 
     try {
-      const now = new Date().toISOString();
+      const contactDate = customDate || new Date().toISOString();
       
       // Build update object based on method
-      const updateData: any = {
-        last_contact_at: now,
+      const updateData: Record<string, unknown> = {
+        last_contact_at: contactDate,
         last_contact_method: method
       };
       
-      // Only update Email - WhatsApp is tracked via last_message_at automatically
+      // Update specific contact fields based on method
       if (method === 'Email') {
-        updateData.last_email_contact = now;
-        setLastEmailContact(now);
+        updateData.last_email_contact = contactDate;
+        // Update state immediately for instant UI feedback
+        setLastEmailContact(contactDate);
+      } else if (method === 'Text') {
+        updateData.last_text_contact = contactDate;
+        // Update state immediately for instant UI feedback
+        setLastTextContact(contactDate);
       }
       
       // Update customer's last contact time and method
@@ -942,12 +1002,11 @@ export default function CustomerDetail() {
         .eq('phone', customer.phone);
 
       if (customerError) throw customerError;
-
-      // Refresh the customer data to show the update immediately
-      fetchCustomerData();
+      
+      // State is already updated above for instant feedback, no need to refetch
       
       // Show success feedback
-      const successMessage = `${method} contact logged at ${new Date(now).toLocaleTimeString()}`;
+      const successMessage = `${method} contact logged at ${new Date(contactDate).toLocaleTimeString()}`;
       console.log(successMessage);
       
       // Also create a daily_update record for communication tracking
@@ -960,21 +1019,27 @@ export default function CustomerDetail() {
           .limit(1);
         
         if (tasks && tasks.length > 0) {
-          await supabase
+          // Use upsert to avoid duplicate key errors
+          const { error: updateError } = await supabase
             .from('daily_updates')
-            .insert({
+            .upsert({
               task_id: tasks[0].id,
               update_date: new Date().toISOString().split('T')[0],
               previous_status: null,
               new_status: 'Communication Logged',
               communicated: true,
               communication_method: method,
-              updated_by: customer.assigned_to
+              updated_by: customer.assigned_to,
+              created_at: new Date().toISOString()
+            }, {
+              onConflict: 'task_id,update_date'
             });
+          
+          if (updateError) {
+            console.log('Daily update error (non-critical):', updateError);
+          }
         }
       }
-      
-      fetchCustomerData();
     } catch (error) {
       console.error('Error logging communication:', error);
     }
@@ -1135,13 +1200,118 @@ export default function CustomerDetail() {
                   method="Email" 
                 />
               </div>
-              <button
-                onClick={() => quickLogCommunication('Email')}
-                className="ml-3 px-3 py-1 text-xs font-medium text-white bg-purple-600 hover:bg-purple-700 rounded"
-                title="Log email contact"
-              >
-                Email
-              </button>
+              <div className="flex items-center gap-2">
+                {showEmailDatePicker ? (
+                  <>
+                    <input
+                      id="email-datetime"
+                      type="datetime-local"
+                      defaultValue={new Date().toISOString().slice(0, 16)}
+                      className="text-xs border-gray-300 rounded"
+                      max={new Date().toISOString().slice(0, 16)}
+                    />
+                    <button
+                      onClick={() => {
+                        const input = document.getElementById('email-datetime') as HTMLInputElement;
+                        if (input?.value) {
+                          // datetime-local gives format: "2025-01-10T14:30"
+                          // Parse and create proper Date object
+                          const date = new Date(input.value);
+                          quickLogCommunication('Email', date.toISOString());
+                        }
+                        setShowEmailDatePicker(false);
+                      }}
+                      className="px-2 py-1 text-xs text-white bg-purple-600 hover:bg-purple-700 rounded"
+                    >
+                      Save
+                    </button>
+                    <button
+                      onClick={() => setShowEmailDatePicker(false)}
+                      className="text-xs text-gray-500 hover:text-gray-700"
+                    >
+                      Cancel
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <button
+                      onClick={() => quickLogCommunication('Email')}
+                      className="px-3 py-1 text-xs font-medium text-white bg-purple-600 hover:bg-purple-700 rounded"
+                      title="Log email contact now"
+                    >
+                      Email
+                    </button>
+                    <button
+                      onClick={() => setShowEmailDatePicker(true)}
+                      className="px-2 py-1 text-xs text-purple-600 hover:text-purple-700 border border-purple-300 rounded"
+                      title="Set custom date"
+                    >
+                      📅
+                    </button>
+                  </>
+                )}
+              </div>
+            </div>
+            
+            {/* Text/SMS Section */}
+            <div className="flex items-center justify-between">
+              <div className="flex-1">
+                <TimeSinceContact 
+                  lastContactDate={lastTextContact} 
+                  method="Text/SMS" 
+                />
+              </div>
+              <div className="flex items-center gap-2">
+                {showTextDatePicker ? (
+                  <>
+                    <input
+                      id="text-datetime"
+                      type="datetime-local"
+                      defaultValue={new Date().toISOString().slice(0, 16)}
+                      className="text-xs border-gray-300 rounded"
+                      max={new Date().toISOString().slice(0, 16)}
+                    />
+                    <button
+                      onClick={() => {
+                        const input = document.getElementById('text-datetime') as HTMLInputElement;
+                        if (input?.value) {
+                          // datetime-local gives format: "2025-01-10T14:30"
+                          // Parse and create proper Date object
+                          const date = new Date(input.value);
+                          quickLogCommunication('Text', date.toISOString());
+                        }
+                        setShowTextDatePicker(false);
+                      }}
+                      className="px-2 py-1 text-xs text-white bg-green-600 hover:bg-green-700 rounded"
+                    >
+                      Save
+                    </button>
+                    <button
+                      onClick={() => setShowTextDatePicker(false)}
+                      className="text-xs text-gray-500 hover:text-gray-700"
+                    >
+                      Cancel
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <button
+                      onClick={() => quickLogCommunication('Text')}
+                      className="px-3 py-1 text-xs font-medium text-white bg-green-600 hover:bg-green-700 rounded"
+                      title="Log text contact now"
+                    >
+                      Text
+                    </button>
+                    <button
+                      onClick={() => setShowTextDatePicker(true)}
+                      className="px-2 py-1 text-xs text-green-600 hover:text-green-700 border border-green-300 rounded"
+                      title="Set custom date"
+                    >
+                      📅
+                    </button>
+                  </>
+                )}
+              </div>
             </div>
             
             {/* WhatsApp Section - Read-only, tracked automatically */}
@@ -1671,45 +1841,186 @@ export default function CustomerDetail() {
       {/* Add Service (Sub-Category) Modal */}
       {showAddSubCategory && (
         <div className="fixed inset-0 bg-gray-600 bg-opacity-50 flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-lg p-6 w-full max-w-md">
+          <div className="bg-white rounded-lg p-6 w-full max-w-2xl max-h-[90vh] overflow-y-auto">
             <h3 className="text-lg font-medium text-gray-900 mb-4">Add New Service</h3>
             <form onSubmit={handleAddSubCategory}>
+              {/* Category Selection */}
               <div className="mb-4">
                 <label className="block text-sm font-medium text-gray-700 mb-2">
                   Category
                 </label>
-                <select
-                  value={selectedCategory}
-                  onChange={(e) => setSelectedCategory(e.target.value)}
-                  className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
-                  required
-                >
-                  <option value="">Select a category...</option>
-                  {PREDEFINED_CATEGORIES.map(category => (
-                    <option key={category} value={category}>{category}</option>
-                  ))}
-                </select>
+                <div className="flex gap-2 mb-2">
+                  <label className="inline-flex items-center">
+                    <input
+                      type="radio"
+                      checked={!isCustomCategory}
+                      onChange={() => {
+                        setIsCustomCategory(false);
+                        setCustomCategoryName('');
+                      }}
+                      className="mr-2"
+                    />
+                    <span className="text-sm">Existing Category</span>
+                  </label>
+                  <label className="inline-flex items-center">
+                    <input
+                      type="radio"
+                      checked={isCustomCategory}
+                      onChange={() => {
+                        setIsCustomCategory(true);
+                        setSelectedCategory('');
+                      }}
+                      className="mr-2"
+                    />
+                    <span className="text-sm">Custom Category</span>
+                  </label>
+                </div>
+                {isCustomCategory ? (
+                  <input
+                    type="text"
+                    value={customCategoryName}
+                    onChange={(e) => setCustomCategoryName(e.target.value)}
+                    placeholder="Enter custom category name..."
+                    className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+                    required
+                  />
+                ) : (
+                  <select
+                    value={selectedCategory}
+                    onChange={(e) => setSelectedCategory(e.target.value)}
+                    className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+                    required
+                  >
+                    <option value="">Select a category...</option>
+                    {PREDEFINED_CATEGORIES.map(category => (
+                      <option key={category} value={category}>{category}</option>
+                    ))}
+                  </select>
+                )}
               </div>
+
+              {/* Subcategory Selection */}
               <div className="mb-4">
                 <label className="block text-sm font-medium text-gray-700 mb-2">
                   Service Name
                 </label>
-                <select
-                  value={newSubCategoryName}
-                  onChange={(e) => setNewSubCategoryName(e.target.value)}
-                  className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
-                  required
-                >
-                  <option value="">Select a service...</option>
-                  {selectedCategory && SUB_CATEGORIES[selectedCategory]?.map(subCat => (
-                    <option key={subCat} value={subCat}>{subCat}</option>
-                  ))}
-                </select>
+                <div className="flex gap-2 mb-2">
+                  <label className="inline-flex items-center">
+                    <input
+                      type="radio"
+                      checked={!isCustomSubCategory}
+                      onChange={() => {
+                        setIsCustomSubCategory(false);
+                        setCustomSubCategoryName('');
+                        setCustomTasks([]);
+                      }}
+                      className="mr-2"
+                      disabled={isCustomCategory}
+                    />
+                    <span className="text-sm">Existing Service</span>
+                  </label>
+                  <label className="inline-flex items-center">
+                    <input
+                      type="radio"
+                      checked={isCustomSubCategory}
+                      onChange={() => {
+                        setIsCustomSubCategory(true);
+                        setNewSubCategoryName('');
+                      }}
+                      className="mr-2"
+                    />
+                    <span className="text-sm">Custom Service</span>
+                  </label>
+                </div>
+                {isCustomSubCategory ? (
+                  <input
+                    type="text"
+                    value={customSubCategoryName}
+                    onChange={(e) => setCustomSubCategoryName(e.target.value)}
+                    placeholder="Enter custom service name..."
+                    className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+                    required
+                  />
+                ) : (
+                  <select
+                    value={newSubCategoryName}
+                    onChange={(e) => setNewSubCategoryName(e.target.value)}
+                    className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+                    required
+                    disabled={!selectedCategory || isCustomCategory}
+                  >
+                    <option value="">Select a service...</option>
+                    {selectedCategory && SUB_CATEGORIES[selectedCategory]?.map(subCat => (
+                      <option key={subCat} value={subCat}>{subCat}</option>
+                    ))}
+                  </select>
+                )}
               </div>
+
+              {/* Custom Tasks Section */}
+              {isCustomSubCategory && (
+                <div className="mb-4">
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Tasks for this Service
+                  </label>
+                  <div className="flex gap-2 mb-2">
+                    <input
+                      type="text"
+                      value={newTaskInput}
+                      onChange={(e) => setNewTaskInput(e.target.value)}
+                      placeholder="Enter task name..."
+                      className="flex-1 rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+                      onKeyPress={(e) => {
+                        if (e.key === 'Enter' && newTaskInput.trim()) {
+                          e.preventDefault();
+                          setCustomTasks([...customTasks, newTaskInput.trim()]);
+                          setNewTaskInput('');
+                        }
+                      }}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (newTaskInput.trim()) {
+                          setCustomTasks([...customTasks, newTaskInput.trim()]);
+                          setNewTaskInput('');
+                        }
+                      }}
+                      className="px-3 py-1 text-sm font-medium text-white bg-green-600 hover:bg-green-700 rounded-md"
+                    >
+                      Add Task
+                    </button>
+                  </div>
+                  {customTasks.length > 0 && (
+                    <div className="border rounded-md p-2 space-y-1">
+                      {customTasks.map((task, index) => (
+                        <div key={index} className="flex items-center justify-between text-sm">
+                          <span>{index + 1}. {task}</span>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setCustomTasks(customTasks.filter((_, i) => i !== index));
+                            }}
+                            className="text-red-600 hover:text-red-700"
+                          >
+                            Remove
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
               <div className="bg-blue-50 border border-blue-200 rounded p-3 text-sm text-blue-700">
                 <p className="font-medium">Note:</p>
-                <p>Tasks will be automatically added based on the service type.</p>
+                <p>
+                  {isCustomSubCategory 
+                    ? "You can add custom tasks for this service, or leave empty to add tasks later."
+                    : "Tasks will be automatically added based on the service type."}
+                </p>
               </div>
+              
               <div className="flex justify-end space-x-3 mt-4">
                 <button
                   type="button"
@@ -1717,6 +2028,12 @@ export default function CustomerDetail() {
                     setShowAddSubCategory(false);
                     setNewSubCategoryName('');
                     setSelectedCategory('');
+                    setIsCustomCategory(false);
+                    setCustomCategoryName('');
+                    setIsCustomSubCategory(false);
+                    setCustomSubCategoryName('');
+                    setCustomTasks([]);
+                    setNewTaskInput('');
                   }}
                   className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-md"
                 >
@@ -1724,8 +2041,12 @@ export default function CustomerDetail() {
                 </button>
                 <button
                   type="submit"
-                  disabled={addingSubCategory}
-                  className="px-4 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed rounded-md"
+                  disabled={addingSubCategory || 
+                    (!isCustomCategory && !selectedCategory) || 
+                    (isCustomCategory && !customCategoryName) ||
+                    (!isCustomSubCategory && !newSubCategoryName) ||
+                    (isCustomSubCategory && !customSubCategoryName)}
+                  className="px-4 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-md disabled:bg-gray-400 disabled:cursor-not-allowed"
                 >
                   {addingSubCategory ? 'Adding...' : 'Add Service'}
                 </button>

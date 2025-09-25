@@ -326,6 +326,10 @@ export default function Updates() {
                           <div className="mt-2 flex items-center text-sm text-green-600">
                             <MessageCircle className="h-4 w-4 mr-1" />
                             Communicated via {update.communication_method || 'unknown method'}
+                            {update.communication_method === 'WhatsApp' && 
+                             (['Complete', 'Waiting on Info', 'Sent Info', 'Call Arranged'].includes(update.new_status)) && 
+                             <span className="ml-1 text-xs text-blue-600">(Auto)</span>
+                            }
                           </div>
                         )}
                       </div>
