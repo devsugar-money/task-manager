@@ -77,6 +77,7 @@ export default function Updates() {
 
     setLoading(true);
     try {
+      // Fetch regular daily updates
       let query = supabase
         .from('daily_updates')
         .select(`
@@ -109,15 +110,72 @@ export default function Updates() {
         query = query.eq('updated_by', selectedServicer);
       }
 
-      const { data, error } = await query;
+      const { data: dailyUpdates, error: dailyError } = await query;
 
-      if (error) {
-        console.error('Supabase error:', error);
-        throw error;
+      if (dailyError) {
+        console.error('Daily updates error:', dailyError);
+        throw dailyError;
       }
 
-      console.log('Fetched updates:', data);
-      setUpdates(data || []);
+      // Fetch automatic WhatsApp communications from customer table
+      const selectedDateFormatted = new Date(selectedDate + 'T00:00:00').toISOString();
+      const nextDay = new Date(new Date(selectedDate + 'T00:00:00').getTime() + 24 * 60 * 60 * 1000).toISOString();
+      
+      const { data: whatsappCustomers, error: whatsappError } = await supabase
+        .from('tbl_customer')
+        .select('phone, display_name, last_message_at, assigned_to, assigned_servicer_name')
+        .gte('last_message_at', selectedDateFormatted)
+        .lt('last_message_at', nextDay)
+        .not('last_message_at', 'is', null);
+
+      if (whatsappError) {
+        console.error('WhatsApp customers error:', whatsappError);
+      }
+
+      // Convert WhatsApp communications to the same format as daily updates
+      const whatsappUpdates = (whatsappCustomers || []).map(customer => ({
+        id: `whatsapp-${customer.phone}-${customer.last_message_at}`,
+        task_id: null,
+        update_date: selectedDate,
+        previous_status: null,
+        new_status: 'WhatsApp Communication',
+        previous_notes: null,
+        new_notes: 'Automatic WhatsApp message received',
+        communicated: true,
+        communication_method: 'WhatsApp',
+        updated_by: customer.assigned_to,
+        created_at: customer.last_message_at,
+        task: {
+          id: null,
+          name: 'Customer Communication',
+          sub_category: {
+            id: null,
+            name: 'WhatsApp',
+            category: {
+              id: null,
+              name: 'Communication',
+              customer: {
+                phone: customer.phone,
+                display_name: customer.display_name
+              }
+            }
+          }
+        },
+        updater: {
+          id: customer.assigned_to,
+          name: customer.assigned_servicer_name || 'System'
+        }
+      }));
+
+      // Combine and sort all updates
+      const allUpdates = [...(dailyUpdates || []), ...whatsappUpdates]
+        .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+
+      console.log('Fetched daily updates:', dailyUpdates);
+      console.log('Fetched WhatsApp updates:', whatsappUpdates);
+      console.log('Combined updates:', allUpdates);
+      
+      setUpdates(allUpdates);
     } catch (error) {
       console.error('Error fetching updates:', error);
       setUpdates([]);
@@ -135,6 +193,8 @@ export default function Updates() {
       case 'Waiting on Info':
       case 'Waiting on Partner':
         return 'text-yellow-600 bg-yellow-50';
+      case 'WhatsApp Communication':
+        return 'text-green-600 bg-green-50';
       case 'N/A':
         return 'text-gray-600 bg-gray-50';
       default:
@@ -328,7 +388,8 @@ export default function Updates() {
                             <MessageCircle className="h-4 w-4 mr-1" />
                             Communicated via {update.communication_method || 'unknown method'}
                             {update.communication_method === 'WhatsApp' && 
-                             (['Complete', 'Waiting on Info', 'Sent Info', 'Call Arranged'].includes(update.new_status)) && 
+                             (update.new_status === 'WhatsApp Communication' || 
+                              ['Complete', 'Waiting on Info', 'Sent Info', 'Call Arranged'].includes(update.new_status)) && 
                              <span className="ml-1 text-xs text-blue-600">(Auto)</span>
                             }
                           </div>
