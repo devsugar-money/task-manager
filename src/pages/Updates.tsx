@@ -123,7 +123,7 @@ export default function Updates() {
       
       const { data: whatsappCustomers, error: whatsappError } = await supabase
         .from('tbl_customer')
-        .select('phone, display_name, last_message_at, assigned_to, assigned_servicer_name')
+        .select('phone, display_name, last_message_at, assigned_to')
         .gte('last_message_at', selectedDateFormatted)
         .lt('last_message_at', nextDay)
         .not('last_message_at', 'is', null);
@@ -163,7 +163,7 @@ export default function Updates() {
         },
         updater: {
           id: customer.assigned_to,
-          name: customer.assigned_servicer_name || 'System'
+          name: 'System'
         }
       }));
 
