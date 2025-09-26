@@ -123,7 +123,13 @@ export default function Updates() {
       
       const { data: whatsappCustomers, error: whatsappError } = await supabase
         .from('tbl_customer')
-        .select('phone, display_name, last_message_at, assigned_to')
+        .select(`
+          phone, 
+          display_name, 
+          last_message_at, 
+          assigned_to,
+          assigned_servicer:tbl_team_member!tbl_customer_assigned_to_fkey(id, name)
+        `)
         .gte('last_message_at', selectedDateFormatted)
         .lt('last_message_at', nextDay)
         .not('last_message_at', 'is', null);
@@ -163,7 +169,7 @@ export default function Updates() {
         },
         updater: {
           id: customer.assigned_to,
-          name: 'System'
+          name: customer.assigned_servicer?.name || 'System'
         }
       }));
 
@@ -207,10 +213,18 @@ export default function Updates() {
     
     updates.forEach(update => {
       const servicerName = update.updater?.name || 'System';
-      if (!grouped[servicerName]) {
-        grouped[servicerName] = [];
+      const isWhatsAppCommunication = update.new_status === 'WhatsApp Communication';
+      const isCommunication = isWhatsAppCommunication || update.communicated;
+      
+      // Create separate groups for communications vs task updates
+      const groupKey = isCommunication
+        ? `${servicerName} - Communications` 
+        : `${servicerName} - Task Updates`;
+      
+      if (!grouped[groupKey]) {
+        grouped[groupKey] = [];
       }
-      grouped[servicerName].push(update);
+      grouped[groupKey].push(update);
     });
 
     return grouped;
